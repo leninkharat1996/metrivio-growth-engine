@@ -1,6 +1,6 @@
 # Metrivio Offer Document
 
-**Purpose of this document:** Reference material for the freelance developer building the Metrivio LinkedIn Prospecting Skill, and for the Skill itself to understand what Metrivio sells, why it matters, and how to talk about it without overstating anything.
+**Purpose of this document:** Reference material for the freelance developer building the Metrivio X Growth Engine, and for the Engine itself to understand what Metrivio sells, why it matters, and how to talk about it without overstating anything.
 
 **Status:** This document contains only confirmed positioning and offer mechanics as defined by Metrivio's founder. It contains no client results, because none exist yet.
 
