@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import type { XReadAdapter, XWriteAdapter, TechAnalyzerAdapter, TechAnalyzerResult } from '@metrivio/core';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import type { XReadAdapter, XWriteAdapter, TechAnalyzerAdapter, TechAnalyzerResult, MetrivioDb } from '@metrivio/core';
+import { KillSwitch, SystemConfigService } from '@metrivio/core';
+import type Database from 'better-sqlite3';
 import {
   XActionsReadAdapter,
   XManagerWriteAdapter,
@@ -7,27 +9,43 @@ import {
   OpenTechAnalyzerAdapter,
   WappalyzerGoAdapter,
   NotImplementedInStage1Error,
+  NotImplementedInStage4AError,
   createDefaultTechAnalyzerAdapter,
 } from '../src/index.js';
+import { createTestDb } from './helpers/test-db.js';
 
 describe('Adapter contracts: Stage 1 boundary stubs', () => {
   describe('XActionsReadAdapter implements XReadAdapter', () => {
-    const adapter: XReadAdapter = new XActionsReadAdapter();
+    // getProfile()/searchTweets() are real, live-wired implementations as of
+    // Stage 4A — covered thoroughly (success, error mapping, kill switch)
+    // in xactions-read.adapter.test.ts against a mocked vendor module, not
+    // here. This suite only covers the five methods Stage 4A does not yet
+    // implement (discovery orchestration, deferred to a later stage).
+    let db: MetrivioDb;
+    let sqlite: Database.Database;
+    let adapter: XReadAdapter;
 
-    it('every read method throws NotImplementedInStage1Error (no production calls in Stage 1)', async () => {
-      await expect(adapter.searchTweets('CAC')).rejects.toBeInstanceOf(NotImplementedInStage1Error);
-      await expect(adapter.getProfile('somehandle')).rejects.toBeInstanceOf(NotImplementedInStage1Error);
-      await expect(adapter.getFollowers('somehandle')).rejects.toBeInstanceOf(NotImplementedInStage1Error);
-      await expect(adapter.getFollowing('somehandle')).rejects.toBeInstanceOf(NotImplementedInStage1Error);
-      await expect(adapter.getTweets('somehandle')).rejects.toBeInstanceOf(NotImplementedInStage1Error);
-      await expect(adapter.getListMembers('https://x.com/i/lists/1')).rejects.toBeInstanceOf(NotImplementedInStage1Error);
+    beforeEach(() => {
+      const testDb = createTestDb();
+      db = testDb.db;
+      sqlite = testDb.sqlite;
+      adapter = new XActionsReadAdapter({ killSwitch: new KillSwitch(new SystemConfigService(db)) });
+    });
+
+    afterEach(() => sqlite.close());
+
+    it('the five discovery-orchestration methods throw NotImplementedInStage4AError (no production calls in Stage 4A)', async () => {
+      await expect(adapter.getFollowers('somehandle')).rejects.toBeInstanceOf(NotImplementedInStage4AError);
+      await expect(adapter.getFollowing('somehandle')).rejects.toBeInstanceOf(NotImplementedInStage4AError);
+      await expect(adapter.getTweets('somehandle')).rejects.toBeInstanceOf(NotImplementedInStage4AError);
+      await expect(adapter.getListMembers('https://x.com/i/lists/1')).rejects.toBeInstanceOf(NotImplementedInStage4AError);
       await expect(adapter.getEngagers('https://x.com/somehandle/status/1')).rejects.toBeInstanceOf(
-        NotImplementedInStage1Error
+        NotImplementedInStage4AError
       );
     });
 
     it('error message identifies the adapter and method for debuggability', async () => {
-      await expect(adapter.getProfile('x')).rejects.toThrow(/XActionsReadAdapter\.getProfile/);
+      await expect(adapter.getFollowers('x')).rejects.toThrow(/XActionsReadAdapter\.getFollowers/);
     });
   });
 

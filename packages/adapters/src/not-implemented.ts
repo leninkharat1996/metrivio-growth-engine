@@ -16,3 +16,27 @@ export class NotImplementedInStage1Error extends Error {
     this.name = 'NotImplementedInStage1Error';
   }
 }
+
+/**
+ * Thrown by the `XActionsReadAdapter` methods Stage 4A deliberately does not
+ * implement yet (`getFollowers`, `getFollowing`, `getTweets`,
+ * `getListMembers`, `getEngagers`). Stage 4A's scope is the read-only
+ * foundation (`getProfile`, `searchTweets`) only — discovery orchestration,
+ * which is what the remaining methods exist for, is explicitly out of scope
+ * per this stage's instructions ("Do not build the discovery orchestration
+ * yet"). Distinct from `NotImplementedInStage1Error` because this class's
+ * two implemented methods are real, live implementations, not stubs — this
+ * error describes methods not yet reached, not a whole adapter that's a
+ * placeholder.
+ */
+export class NotImplementedInStage4AError extends Error {
+  constructor(adapterName: string, method: string) {
+    super(
+      `${adapterName}.${method}() is not implemented in Stage 4A. Only getProfile() and ` +
+        'searchTweets() are built this stage (the XActions read-only foundation); ' +
+        'getFollowers/getFollowing/getTweets/getListMembers/getEngagers are discovery-orchestration ' +
+        'concerns deferred to a later stage.'
+    );
+    this.name = 'NotImplementedInStage4AError';
+  }
+}

@@ -18,6 +18,7 @@
     "dist",
     "node_modules",
     "packages/content/vendor/**",
+    "packages/adapters/vendor/**",
     "drizzle/migrations/**"
   ],
   "rules": {

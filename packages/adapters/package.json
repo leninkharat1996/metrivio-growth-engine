@@ -16,5 +16,9 @@
     "@metrivio/core": "*",
     "opentechalyzer": "0.4.2",
     "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^11.5.0",
+    "drizzle-orm": "^0.36.4"
   }
 }
