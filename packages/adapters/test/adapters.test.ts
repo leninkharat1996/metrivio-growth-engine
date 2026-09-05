@@ -77,14 +77,17 @@ describe('Adapter contracts: Stage 1 boundary stubs', () => {
       expect(typeof fallback.analyzeMany).toBe('function');
     });
 
-    it('both throw NotImplementedInStage1Error — no production scans in Stage 1', async () => {
-      const primary = new OpenTechAnalyzerAdapter();
+    it('the fallback (WappalyzerGoAdapter) still throws NotImplementedInStage1Error — only the primary (OpenTechAnalyzer) got a real Stage 2 implementation', async () => {
       const fallback = new WappalyzerGoAdapter();
-      await expect(primary.analyze('example.com')).rejects.toBeInstanceOf(NotImplementedInStage1Error);
-      await expect(primary.analyzeMany(['example.com'])).rejects.toBeInstanceOf(NotImplementedInStage1Error);
       await expect(fallback.analyze('example.com')).rejects.toBeInstanceOf(NotImplementedInStage1Error);
       await expect(fallback.analyzeMany(['example.com'])).rejects.toBeInstanceOf(NotImplementedInStage1Error);
     });
+
+    // OpenTechAnalyzerAdapter's real (Stage 2) behavior — scan/technology
+    // status mapping, evidence normalization, render/crawl defaults, batch
+    // handling — is covered in open-tech-analyzer.adapter.test.ts against a
+    // mocked `opentechalyzer` module, not here (this file no longer asserts
+    // that the primary adapter throws, since it is no longer a stub).
   });
 
   describe('TechAnalyzerResult shape: scan-status vs technology-status distinction (ARCHITECTURE.md §6)', () => {

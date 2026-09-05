@@ -1,14 +1,10 @@
 /**
- * @metrivio/prospecting — Stage 1 scaffold only.
+ * @metrivio/prospecting
  *
- * This package will hold the Discover → Enrich → Verify → Score →
- * Personalize → Outreach → Follow-up → Reply Detection → Stop/Continue
- * pipeline (ARCHITECTURE.md §3), built out across BUILD_PLAN.md Stages 4–9.
- *
- * Nothing functional lives here yet. It exists in Stage 1 so the monorepo's
- * workspace structure matches BUILD_PLAN.md Stage 1 exactly ("Initialize the
- * Node/TypeScript monorepo (workspaces: core, prospecting, content,
- * adapters, dashboard)"), and so later stages have a package to build into
- * rather than needing to scaffold one mid-stage.
+ * Stage 2 scope: technology enrichment only (BUILD_PLAN.md Stage 2's
+ * TechAnalyzerAdapter item, ARCHITECTURE.md §3.1 "Enrich" stage's
+ * domain-to-evidence path). Discovery, verification, ICP scoring,
+ * personalization, and outreach (BUILD_PLAN.md Stages 3, 4, 5, 8+) are not
+ * implemented here yet.
  */
-export const PROSPECTING_PACKAGE_STAGE = 'scaffold-only' as const;
+export * from './enrichment/technology-enrichment.js';

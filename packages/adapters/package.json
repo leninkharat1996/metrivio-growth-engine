@@ -13,6 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@metrivio/core": "*"
+    "@metrivio/core": "*",
+    "opentechalyzer": "0.4.2",
+    "playwright": "^1.40.0"
   }
 }

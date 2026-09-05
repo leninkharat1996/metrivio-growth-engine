@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@metrivio/core": "*",
-    "@metrivio/adapters": "*"
+    "@metrivio/adapters": "*",
+    "drizzle-orm": "^0.36.4",
+    "uuid": "^11.0.3"
   }
 }
