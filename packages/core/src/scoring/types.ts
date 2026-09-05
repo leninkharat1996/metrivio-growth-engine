@@ -10,7 +10,17 @@ import type { IcpFactorName, IcpEvidenceTier, IcpTier, DisclosureStatus } from '
 export interface IcpFactorBreakdownEntry {
   points: number;
   maxPoints: number;
-  evidenceTier: IcpEvidenceTier;
+  /**
+   * Only `revenueFit` and `paidAcquisition` actually use an evidence tier
+   * (ICP §22.A: "applies to Revenue-Fit and Paid Acquisition Activity/
+   * Intensity Fit only"). The other four factors are fixed-point checklists
+   * with no tier concept at all (§22.B), so this is optional and correctly
+   * absent for them — a Stage 3 correction to this Stage-1-authored type,
+   * which had required it on every factor; see the Stage 3 completion
+   * report for why forcing a fabricated tier onto checklist factors would
+   * have been actively misleading rather than a scoring-rule change.
+   */
+  evidenceTier?: IcpEvidenceTier;
 }
 
 export interface IcpScoreResult {

@@ -70,3 +70,12 @@ export function tierForScore(score: number): IcpTier {
 /** ICP §22.D Disclosure Status values — independent of the score itself. */
 export const DISCLOSURE_STATUSES = ['CONFIRMED', 'NOT_CONFIRMED', 'UNKNOWN'] as const;
 export type DisclosureStatus = (typeof DISCLOSURE_STATUSES)[number];
+
+/**
+ * Pins which version of the deterministic scorer produced a given
+ * `icp_scores` row (DATABASE.md `icp_scores.scoring_engine_version`), so a
+ * later change to this Stage 3 implementation doesn't silently reinterpret
+ * old scores. Bump this only when `scorer.ts`'s actual point/tier logic
+ * changes — not for unrelated refactors.
+ */
+export const ICP_SCORING_ENGINE_VERSION = 'icp-scorer-v1' as const;
