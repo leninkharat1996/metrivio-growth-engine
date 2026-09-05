@@ -1,0 +1,29 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Database (local dev data + WAL files)
+var/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+
+# Logs
+*.log
+
+# Vendored third-party app — tracked by its own pinned commit, not our history
+# (see packages/content/vendor/x-manager/VENDOR.md for the pin details)
+
+# OS/editor cruft
+.DS_Store
+.vscode/
+.idea/
