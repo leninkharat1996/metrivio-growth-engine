@@ -5,6 +5,7 @@ export * from './xactions-write.adapter.js';
 export * from './open-tech-analyzer.adapter.js';
 export * from './wappalyzergo.adapter.js';
 export * from './website-content.adapter.js';
+export * from './xactions-send.adapter.js';
 
 import type { TechAnalyzerAdapter } from '@metrivio/core';
 import { OpenTechAnalyzerAdapter } from './open-tech-analyzer.adapter.js';

@@ -1,15 +1,21 @@
 /**
- * @metrivio/outreach — Stage 6A: Outreach Foundation.
+ * @metrivio/outreach — Stage 6A (Outreach Foundation) + Stage 6B (X Write /
+ * Send Adapter).
  *
- * Establishes the architecture and safety boundaries for
+ * Stage 6A established:
  *   Qualified Prospect -> Outreach Eligibility -> Personalization Evidence
- *   -> Message Draft -> Human Approval -> (future) Send
- * without implementing any X write/send capability. Nothing in this
- * package can send a DM, reply, follow, like, or repost — no method named
- * `send` (or similar) exists anywhere in this package, and the future send
- * boundary is `@metrivio/core`'s existing `XWriteAdapter` contract
- * (unmodified, still fully stubbed since Stage 1) — not a new interface
- * this package invents.
+ *   -> Message Draft -> Human Approval
+ * Stage 6B adds exactly one more step, and only for an already-APPROVED
+ * draft:
+ *   APPROVED DRAFT -> SAFE SINGLE X SEND -> AUDIT/RESULT
+ * (`send/send-service.ts`'s `SendApprovedDraftService`). There is no batch
+ * send, no scheduler, no autonomous queue, and no automatic retry anywhere
+ * in this package — `send()` performs exactly one explicit, caller-
+ * specified attempt. The concrete network-write adapter
+ * (`XActionsSendAdapter`, `packages/adapters`) does not yet perform a real
+ * X write at all — see RISK_REGISTER.md's Stage 6B section for the
+ * verified research finding behind that (the vendored XActions subtree
+ * deliberately excludes `dm.js`, so no request format is verified).
  *
  * Scoring and outreach remain separate: this package reads `icp_scores`
  * rows (Stage 3's output) as one eligibility input, but never recomputes,
@@ -25,3 +31,6 @@ export * from './drafts/message-templates.js';
 export * from './drafts/draft-store.js';
 export * from './drafts/draft-generation-service.js';
 export * from './follow-up/contracts.js';
+export * from './send/send-outcome.js';
+export * from './send/send-service.js';
+export * from './send/manual-sequence.js';

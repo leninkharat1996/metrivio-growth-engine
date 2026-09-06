@@ -65,7 +65,24 @@ export const SYSTEM_CONFIG_KEYS = {
    * convention every other config default in this file already follows).
    */
   outreachMinimumTier: 'outreach.minimum_tier',
+  /**
+   * Stage 6B — the maximum character length a single outreach DM's message
+   * text may have. Not X's own real DM character limit (that value is not
+   * verifiable from this codebase's vendored XActions source — `dm.js`,
+   * which would carry it, was deliberately excluded; see RISK_REGISTER.md's
+   * Stage 6B section) — a deliberately conservative, documented internal
+   * safety default for a cold-outreach message, not a re-derivation of a
+   * platform limit this codebase has never confirmed. The daily outreach
+   * DM cap deliberately reuses the existing `dailyLimitDms` key above
+   * rather than a new one — Stage 1 already defined it for exactly this
+   * purpose (`daily_limit_dms`), per instruction not to build a second
+   * rate-limit framework.
+   */
+  outreachMaxMessageLength: 'outreach.max_message_length',
 } as const;
+
+/** See `outreachMaxMessageLength`'s doc comment above — conservative and documented, not sourced from a verified X platform limit. */
+export const DEFAULT_OUTREACH_MAX_MESSAGE_LENGTH = 500;
 
 /**
  * Default discovery queries, derived directly from the finalized ICP
@@ -303,6 +320,16 @@ export class SystemConfigService {
 
   async setOutreachMinimumTier(tier: 'A' | 'B' | 'C', updatedBy: string): Promise<void> {
     await this.setRaw(SYSTEM_CONFIG_KEYS.outreachMinimumTier, tier, updatedBy);
+  }
+
+  async getOutreachMaxMessageLength(): Promise<number> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.outreachMaxMessageLength);
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_OUTREACH_MAX_MESSAGE_LENGTH;
+  }
+
+  async setOutreachMaxMessageLength(length: number, updatedBy: string): Promise<void> {
+    await this.setRaw(SYSTEM_CONFIG_KEYS.outreachMaxMessageLength, String(Math.max(1, Math.trunc(length))), updatedBy);
   }
 }
 
