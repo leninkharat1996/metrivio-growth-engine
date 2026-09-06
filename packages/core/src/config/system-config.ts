@@ -25,7 +25,50 @@ export const SYSTEM_CONFIG_KEYS = {
   geographyFilter: 'geography_filter',
   verticalInclusionRules: 'vertical_inclusion_rules',
   verticalExclusionRules: 'vertical_exclusion_rules',
+  /**
+   * Stage 4B discovery configuration — kept to the smallest set genuinely
+   * needed (query lists + two bounds), reusing this same generic
+   * `system_config` key-value mechanism rather than a new subsystem.
+   * Deliberately does NOT duplicate `dailyLimitScrapes` — a discovery run's
+   * request budget reuses that existing key (see
+   * `packages/prospecting/src/discovery`), per instruction not to build a
+   * second rate-limit framework.
+   */
+  discoveryFounderQueries: 'discovery.founder_queries',
+  discoveryPainIntentQueries: 'discovery.pain_intent_queries',
+  discoveryMaxCandidatesPerQuery: 'discovery.max_candidates_per_query',
+  discoveryMaxProfilesPerRun: 'discovery.max_profiles_per_run',
 } as const;
+
+/**
+ * Default discovery queries, derived directly from the finalized ICP
+ * document rather than invented: founder-role vocabulary from ICP §22.B's
+ * own role-tier terminology (Founder/Co-founder/CEO/Owner) combined with the
+ * DTC/ecommerce/Shopify business-model terms ICP §7/§11 already use, and
+ * pain/intent terms taken verbatim from DATABASE.md's own `pain_signals.
+ * topic` enum (CAC/ROAS/MER/attribution/budget_allocation/
+ * channel_performance/profitability) — not a separately-invented keyword
+ * list.
+ */
+export const DEFAULT_DISCOVERY_FOUNDER_QUERIES = [
+  'founder DTC',
+  'founder ecommerce',
+  'co-founder Shopify',
+  'CEO DTC brand',
+] as const;
+
+export const DEFAULT_DISCOVERY_PAIN_INTENT_QUERIES = [
+  'CAC',
+  'ROAS',
+  'MER',
+  'attribution',
+  'budget allocation',
+  'channel performance',
+  'profitability',
+] as const;
+
+export const DEFAULT_DISCOVERY_MAX_CANDIDATES_PER_QUERY = 25;
+export const DEFAULT_DISCOVERY_MAX_PROFILES_PER_RUN = 50;
 
 export class SystemConfigService {
   constructor(private readonly db: MetrivioDb) {}
@@ -67,6 +110,10 @@ export class SystemConfigService {
       [SYSTEM_CONFIG_KEYS.geographyFilter]: '[]',
       [SYSTEM_CONFIG_KEYS.verticalInclusionRules]: '[]',
       [SYSTEM_CONFIG_KEYS.verticalExclusionRules]: '[]',
+      [SYSTEM_CONFIG_KEYS.discoveryFounderQueries]: JSON.stringify(DEFAULT_DISCOVERY_FOUNDER_QUERIES),
+      [SYSTEM_CONFIG_KEYS.discoveryPainIntentQueries]: JSON.stringify(DEFAULT_DISCOVERY_PAIN_INTENT_QUERIES),
+      [SYSTEM_CONFIG_KEYS.discoveryMaxCandidatesPerQuery]: String(DEFAULT_DISCOVERY_MAX_CANDIDATES_PER_QUERY),
+      [SYSTEM_CONFIG_KEYS.discoveryMaxProfilesPerRun]: String(DEFAULT_DISCOVERY_MAX_PROFILES_PER_RUN),
     };
 
     for (const [key, value] of Object.entries(defaults)) {
@@ -142,6 +189,36 @@ export class SystemConfigService {
       inclusion: inclusionRaw ? (JSON.parse(inclusionRaw) as string[]) : [],
       exclusion: exclusionRaw ? (JSON.parse(exclusionRaw) as string[]) : [],
     };
+  }
+
+  async getDiscoveryFounderQueries(): Promise<string[]> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.discoveryFounderQueries);
+    return raw ? (JSON.parse(raw) as string[]) : [...DEFAULT_DISCOVERY_FOUNDER_QUERIES];
+  }
+
+  async setDiscoveryFounderQueries(queries: string[], updatedBy: string): Promise<void> {
+    await this.setRaw(SYSTEM_CONFIG_KEYS.discoveryFounderQueries, JSON.stringify(queries), updatedBy);
+  }
+
+  async getDiscoveryPainIntentQueries(): Promise<string[]> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.discoveryPainIntentQueries);
+    return raw ? (JSON.parse(raw) as string[]) : [...DEFAULT_DISCOVERY_PAIN_INTENT_QUERIES];
+  }
+
+  async setDiscoveryPainIntentQueries(queries: string[], updatedBy: string): Promise<void> {
+    await this.setRaw(SYSTEM_CONFIG_KEYS.discoveryPainIntentQueries, JSON.stringify(queries), updatedBy);
+  }
+
+  async getDiscoveryMaxCandidatesPerQuery(): Promise<number> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.discoveryMaxCandidatesPerQuery);
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DISCOVERY_MAX_CANDIDATES_PER_QUERY;
+  }
+
+  async getDiscoveryMaxProfilesPerRun(): Promise<number> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.discoveryMaxProfilesPerRun);
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DISCOVERY_MAX_PROFILES_PER_RUN;
   }
 }
 
