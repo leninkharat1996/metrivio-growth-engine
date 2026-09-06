@@ -90,6 +90,15 @@ export const SYSTEM_CONFIG_KEYS = {
    * `automation.mode` pair.
    */
   outreachAutomationMaxItemsPerRun: 'outreach.automation_max_items_per_run',
+  /**
+   * Stage 7 — the content-intelligence-automation analog of
+   * `outreachAutomationMaxItemsPerRun` above. Automation on/off and mode
+   * are NOT new concepts here either: `automationMode('content.publishing')`
+   * (Stage 1, above) already exists and already fail-closes to `dry_run`
+   * when unset — reused as-is, exactly like Stage 6E reused
+   * `automationMode('prospecting.outreach')`.
+   */
+  contentAutomationMaxItemsPerRun: 'content.automation_max_items_per_run',
 } as const;
 
 /** See `outreachMaxMessageLength`'s doc comment above — conservative and documented, not sourced from a verified X platform limit. */
@@ -97,6 +106,9 @@ export const DEFAULT_OUTREACH_MAX_MESSAGE_LENGTH = 500;
 
 /** See `outreachAutomationMaxItemsPerRun`'s doc comment above — a small, conservative bound, consistent with `DEFAULT_DISCOVERY_MAX_PROFILES_PER_RUN`'s own style. */
 export const DEFAULT_OUTREACH_AUTOMATION_MAX_ITEMS_PER_RUN = 25;
+
+/** See `contentAutomationMaxItemsPerRun`'s doc comment above. */
+export const DEFAULT_CONTENT_AUTOMATION_MAX_ITEMS_PER_RUN = 25;
 
 /**
  * Default discovery queries, derived directly from the finalized ICP
@@ -354,6 +366,16 @@ export class SystemConfigService {
 
   async setOutreachAutomationMaxItemsPerRun(value: number, updatedBy: string): Promise<void> {
     await this.setRaw(SYSTEM_CONFIG_KEYS.outreachAutomationMaxItemsPerRun, String(Math.max(1, Math.trunc(value))), updatedBy);
+  }
+
+  async getContentAutomationMaxItemsPerRun(): Promise<number> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.contentAutomationMaxItemsPerRun);
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CONTENT_AUTOMATION_MAX_ITEMS_PER_RUN;
+  }
+
+  async setContentAutomationMaxItemsPerRun(value: number, updatedBy: string): Promise<void> {
+    await this.setRaw(SYSTEM_CONFIG_KEYS.contentAutomationMaxItemsPerRun, String(Math.max(1, Math.trunc(value))), updatedBy);
   }
 }
 

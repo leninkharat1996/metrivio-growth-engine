@@ -47,11 +47,14 @@ describe('Database schema initialization (migration applies cleanly from empty)'
       expect(tableNames).toContain(table);
     }
 
-    // The one documented, intentional deviation from a literal reading of
-    // DATABASE.md — see schema.ts's comment above `jobRuns` and the Stage 1
-    // completion report.
+    // The documented, intentional deviations from a literal reading of
+    // DATABASE.md — see schema.ts's comments above `jobRuns` (Stage 1) and
+    // `contentSignals`/`contentTrackedAccounts` (Stage 7), plus their
+    // respective completion reports / RISK_REGISTER.md sections.
     expect(tableNames).toContain('job_runs');
-    expect(tableNames).toHaveLength(expectedFromDatabaseMd.length + 1);
+    expect(tableNames).toContain('content_signals');
+    expect(tableNames).toContain('content_tracked_accounts');
+    expect(tableNames).toHaveLength(expectedFromDatabaseMd.length + 3);
   });
 
   it('WAL mode is enabled, per DATABASE.md ("Engine: SQLite (WAL mode)")', () => {

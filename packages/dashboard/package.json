@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@metrivio/core": "*"
+    "@metrivio/core": "*",
+    "@metrivio/content": "*"
   }
 }

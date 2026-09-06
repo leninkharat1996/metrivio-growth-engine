@@ -268,6 +268,76 @@ export const conversationMessages = sqliteTable(
 // 3. Content Tables
 // ---------------------------------------------------------------------------
 
+// Stage 7 addition beyond DATABASE.md, flagged here the same way Stage 1
+// flagged `job_runs`: two small, genuinely new tables, not a silent
+// migration. `content_ideas`/`content_drafts`/`content_performance_rollup`
+// (below, unchanged) already cover "opportunity" and "draft" concepts, but
+// neither can represent a single piece of *research evidence* (a specific
+// ICP/competitor/expert post or web article, with its own provenance,
+// engagement metrics, and extraction), nor a *tracked account identity*
+// for a competitor/expert (semantically distinct from `prospects`, which
+// specifically models an outreach *target* — a competitor/expert is never
+// one). See RISK_REGISTER.md's Stage 7 section for the full justification.
+
+/** FACT/OBSERVATION/INFERENCE/OPINION — Stage 7's confidence axis (distinct from `evidence.evidence_tier`'s CONFIRMED/STRONG_EVIDENCE/LIKELY/UNKNOWN, which grades verifiability of a prospect-targeting claim; this one grades how directly a content-research claim is grounded in a source). */
+export const contentSignals = sqliteTable(
+  'content_signals',
+  {
+    id: text('id').primaryKey(),
+    signalType: text('signal_type').notNull().$type<'icp_post' | 'competitor_post' | 'expert_post' | 'web_research' | 'own_post'>(),
+    sourceType: text('source_type').notNull().$type<'x_post' | 'web_article'>(),
+    sourceUrl: text('source_url'),
+    /** Links back to an existing `prospects` row for an ICP-sourced signal — reuses Stage 4 identity, never duplicated (Section A). Null for competitor/expert/web signals. */
+    prospectId: text('prospect_id'),
+    /** Links to `content_tracked_accounts` for a competitor/expert-sourced signal. Null for ICP/web signals. */
+    accountId: text('account_id'),
+    authorUsername: text('author_username'),
+    companyName: text('company_name'),
+    topic: text('topic'), // free-text label, not the taxonomy key itself
+    painCategory: text('pain_category'), // one of PAIN_TAXONOMY_CATEGORIES (packages/content) or 'other' — validated at the application layer, same convention as every other text-typed enum in this file
+    confidence: text('confidence').notNull().$type<'FACT' | 'OBSERVATION' | 'INFERENCE' | 'OPINION'>(),
+    /** A short, bounded excerpt for context only — never the full source text verbatim beyond what's needed to justify the extraction (Section P: research is for insight extraction, not content copying). */
+    excerpt: text('excerpt'),
+    /** The structured extraction this signal represents — Section B's full field list (problem/desiredOutcome/frustration/objection/misconception/question/buyingSignal/trigger/emotionalIntensity/claimSupported/etc). JSON, serialized — kept flexible so new extraction fields never require a migration. */
+    extraction: text('extraction'),
+    engagementLikes: integer('engagement_likes'),
+    engagementReplies: integer('engagement_replies'),
+    engagementReposts: integer('engagement_reposts'),
+    engagementBookmarks: integer('engagement_bookmarks'),
+    engagementViews: integer('engagement_views'),
+    relevanceScore: integer('relevance_score'), // 0-100, deterministic — see ContentOpportunityScoring; null when insufficient evidence (never a guessed default)
+    publishedAt: text('published_at'),
+    capturedAt: text('captured_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    signalTypeIdx: index('content_signals_signal_type_idx').on(t.signalType),
+    prospectIdx: index('content_signals_prospect_idx').on(t.prospectId),
+    accountIdx: index('content_signals_account_idx').on(t.accountId),
+    painCategoryIdx: index('content_signals_pain_category_idx').on(t.painCategory),
+  })
+);
+
+export const contentTrackedAccounts = sqliteTable(
+  'content_tracked_accounts',
+  {
+    id: text('id').primaryKey(),
+    accountType: text('account_type').notNull().$type<'competitor' | 'expert'>(),
+    xUsername: text('x_username').notNull(),
+    xUserId: text('x_user_id'),
+    displayName: text('display_name'),
+    companyName: text('company_name'),
+    /** Why this account was classified as a competitor/expert — always populated, never a bare label (Section F: "only classify... when evidence supports it"). */
+    classificationReason: text('classification_reason').notNull(),
+    classificationConfidence: text('classification_confidence').notNull().$type<'FACT' | 'OBSERVATION' | 'INFERENCE' | 'OPINION'>(),
+    active: integer('active', { mode: 'boolean' }).notNull().default(true),
+    discoveredAt: text('discovered_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+  },
+  (t) => ({
+    xUsernameUnique: uniqueIndex('content_tracked_accounts_x_username_unique').on(t.xUsername),
+    accountTypeIdx: index('content_tracked_accounts_account_type_idx').on(t.accountType),
+  })
+);
+
 export const contentIdeas = sqliteTable('content_ideas', {
   id: text('id').primaryKey(),
   topic: text('topic').notNull(),

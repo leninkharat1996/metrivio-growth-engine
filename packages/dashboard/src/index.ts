@@ -1,11 +1,14 @@
 /**
- * @metrivio/dashboard — Stage 1 scaffold only.
+ * @metrivio/dashboard — Stage 7 addition: a SMALL, read-only content-
+ * intelligence dashboard (Section U). No publishing controls, no
+ * interactivity, no new frontend framework — a plain HTML table/card
+ * render of data already computed by `packages/content`.
  *
- * Will extend the vendored X-Manager Next.js dashboard with Prospects,
- * Qualified Prospects, Outreach, and Conversations sections (ARCHITECTURE.md
- * §8), built out in BUILD_PLAN.md Stage 7 (read-only) and Stage 14 (full).
- *
- * Nothing functional lives here yet — this is scaffolding only, per Stage 1
- * scope.
+ * The original Stage 1 scope (extending the vendored X-Manager Next.js
+ * dashboard with Prospects/Outreach/Conversations sections) remains
+ * unbuilt — that is still future work, unrelated to this stage.
  */
-export const DASHBOARD_PACKAGE_STAGE = 'scaffold-only' as const;
+export const DASHBOARD_PACKAGE_STAGE = 'stage-7-content-intelligence' as const;
+
+export * from './dashboard-data-service.js';
+export * from './dashboard-html-renderer.js';
