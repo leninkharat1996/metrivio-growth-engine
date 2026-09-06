@@ -51,6 +51,20 @@ export const SYSTEM_CONFIG_KEYS = {
   websiteEvidencePagePaths: 'website_evidence.page_paths',
   websiteEvidenceMaxPagesPerDomain: 'website_evidence.max_pages_per_domain',
   websiteEvidenceFetchTimeoutMs: 'website_evidence.fetch_timeout_ms',
+  /**
+   * Stage 6A — the minimum ICP tier a prospect must have to be outreach-
+   * eligible. Deliberately has NO default value seeded by
+   * `seedDefaultsFromEnv` and no fallback in its getter: neither
+   * docs/02-metrivio-icp.md nor docs/01-metrivio-offer.md defines an
+   * outreach score/tier threshold anywhere (the ICP score bands in §22.C
+   * are fit bands, not an outreach-contact policy) — per instruction, this
+   * must not be invented silently. Until a human sets this key explicitly,
+   * `getOutreachMinimumTier()` returns `null`, and
+   * `packages/outreach`'s eligibility evaluator treats that as INELIGIBLE
+   * for every prospect (fail-closed — the same "unset = safest state"
+   * convention every other config default in this file already follows).
+   */
+  outreachMinimumTier: 'outreach.minimum_tier',
 } as const;
 
 /**
@@ -279,6 +293,16 @@ export class SystemConfigService {
     const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.websiteEvidenceFetchTimeoutMs);
     const parsed = raw ? Number.parseInt(raw, 10) : NaN;
     return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_WEBSITE_EVIDENCE_FETCH_TIMEOUT_MS;
+  }
+
+  /** `null` means "not configured" — see the key's own doc comment above. Never defaults to a tier. */
+  async getOutreachMinimumTier(): Promise<'A' | 'B' | 'C' | null> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.outreachMinimumTier);
+    return raw === 'A' || raw === 'B' || raw === 'C' ? raw : null;
+  }
+
+  async setOutreachMinimumTier(tier: 'A' | 'B' | 'C', updatedBy: string): Promise<void> {
+    await this.setRaw(SYSTEM_CONFIG_KEYS.outreachMinimumTier, tier, updatedBy);
   }
 }
 

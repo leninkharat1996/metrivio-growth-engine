@@ -4,6 +4,7 @@
     { "path": "packages/core" },
     { "path": "packages/adapters" },
     { "path": "packages/prospecting" },
+    { "path": "packages/outreach" },
     { "path": "packages/content" },
     { "path": "packages/dashboard" }
   ]
