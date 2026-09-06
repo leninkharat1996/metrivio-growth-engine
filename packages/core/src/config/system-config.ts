@@ -38,6 +38,19 @@ export const SYSTEM_CONFIG_KEYS = {
   discoveryPainIntentQueries: 'discovery.pain_intent_queries',
   discoveryMaxCandidatesPerQuery: 'discovery.max_candidates_per_query',
   discoveryMaxProfilesPerRun: 'discovery.max_profiles_per_run',
+  /**
+   * Stage 5 website-evidence configuration — same pattern as the Stage 4B
+   * discovery keys above: the smallest bound set genuinely needed (a page
+   * path list, a per-domain page cap, and a per-request timeout), reusing
+   * this same generic `system_config` mechanism. Deliberately does not
+   * duplicate `dailyLimitScrapes` — a website-evidence run's request budget
+   * reuses that existing key (see
+   * `packages/prospecting/src/website-evidence`), per instruction not to
+   * build a second rate-limit framework.
+   */
+  websiteEvidencePagePaths: 'website_evidence.page_paths',
+  websiteEvidenceMaxPagesPerDomain: 'website_evidence.max_pages_per_domain',
+  websiteEvidenceFetchTimeoutMs: 'website_evidence.fetch_timeout_ms',
 } as const;
 
 /**
@@ -69,6 +82,29 @@ export const DEFAULT_DISCOVERY_PAIN_INTENT_QUERIES = [
 
 export const DEFAULT_DISCOVERY_MAX_CANDIDATES_PER_QUERY = 25;
 export const DEFAULT_DISCOVERY_MAX_PROFILES_PER_RUN = 50;
+
+/**
+ * Default page set to check for a domain, in priority order — the home page
+ * is always fetched first; the rest are the pages most likely to carry the
+ * specific first-party facts Stage 5 looks for (team size, press/
+ * announcements, careers). Not exhaustive by design — a small, fixed list,
+ * per instruction H ("prefer homepage/about/team/press/careers/contact
+ * only," "no unbounded crawling").
+ */
+export const DEFAULT_WEBSITE_EVIDENCE_PAGE_PATHS = [
+  '/',
+  '/about',
+  '/about-us',
+  '/team',
+  '/our-team',
+  '/press',
+  '/news',
+  '/careers',
+  '/jobs',
+] as const;
+
+export const DEFAULT_WEBSITE_EVIDENCE_MAX_PAGES_PER_DOMAIN = 4;
+export const DEFAULT_WEBSITE_EVIDENCE_FETCH_TIMEOUT_MS = 8000;
 
 export class SystemConfigService {
   constructor(private readonly db: MetrivioDb) {}
@@ -114,6 +150,9 @@ export class SystemConfigService {
       [SYSTEM_CONFIG_KEYS.discoveryPainIntentQueries]: JSON.stringify(DEFAULT_DISCOVERY_PAIN_INTENT_QUERIES),
       [SYSTEM_CONFIG_KEYS.discoveryMaxCandidatesPerQuery]: String(DEFAULT_DISCOVERY_MAX_CANDIDATES_PER_QUERY),
       [SYSTEM_CONFIG_KEYS.discoveryMaxProfilesPerRun]: String(DEFAULT_DISCOVERY_MAX_PROFILES_PER_RUN),
+      [SYSTEM_CONFIG_KEYS.websiteEvidencePagePaths]: JSON.stringify(DEFAULT_WEBSITE_EVIDENCE_PAGE_PATHS),
+      [SYSTEM_CONFIG_KEYS.websiteEvidenceMaxPagesPerDomain]: String(DEFAULT_WEBSITE_EVIDENCE_MAX_PAGES_PER_DOMAIN),
+      [SYSTEM_CONFIG_KEYS.websiteEvidenceFetchTimeoutMs]: String(DEFAULT_WEBSITE_EVIDENCE_FETCH_TIMEOUT_MS),
     };
 
     for (const [key, value] of Object.entries(defaults)) {
@@ -219,6 +258,27 @@ export class SystemConfigService {
     const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.discoveryMaxProfilesPerRun);
     const parsed = raw ? Number.parseInt(raw, 10) : NaN;
     return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DISCOVERY_MAX_PROFILES_PER_RUN;
+  }
+
+  async getWebsiteEvidencePagePaths(): Promise<string[]> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.websiteEvidencePagePaths);
+    return raw ? (JSON.parse(raw) as string[]) : [...DEFAULT_WEBSITE_EVIDENCE_PAGE_PATHS];
+  }
+
+  async setWebsiteEvidencePagePaths(paths: string[], updatedBy: string): Promise<void> {
+    await this.setRaw(SYSTEM_CONFIG_KEYS.websiteEvidencePagePaths, JSON.stringify(paths), updatedBy);
+  }
+
+  async getWebsiteEvidenceMaxPagesPerDomain(): Promise<number> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.websiteEvidenceMaxPagesPerDomain);
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_WEBSITE_EVIDENCE_MAX_PAGES_PER_DOMAIN;
+  }
+
+  async getWebsiteEvidenceFetchTimeoutMs(): Promise<number> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.websiteEvidenceFetchTimeoutMs);
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_WEBSITE_EVIDENCE_FETCH_TIMEOUT_MS;
   }
 }
 
