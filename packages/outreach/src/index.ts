@@ -44,3 +44,6 @@ export * from './follow-up/reply-state.js';
 export * from './follow-up/follow-up-eligibility.js';
 export * from './follow-up/reply-detection-service.js';
 export * from './follow-up/follow-up-eligibility-service.js';
+export * from './follow-up/sequence-step.js';
+export * from './follow-up/follow-up-message-templates.js';
+export * from './follow-up/follow-up-draft-service.js';

@@ -23,6 +23,32 @@ export class DraftGenerationService {
   }
 
   async generateDraftForProspect(prospectId: string): Promise<GenerateDraftResult> {
+    const { prospect, evidenceRows, painSignals, technologyDetections } = await this.gatherPersonalizationInputs(prospectId);
+
+    return this.draftService.generateDraft({
+      prospectId,
+      displayName: prospect.displayName,
+      companyName: prospect.companyName,
+      evidenceRows,
+      painSignals,
+      technologyDetections,
+    });
+  }
+
+  /**
+   * The prospect lookup plus `evidence`/`pain_signals`/`technology_detections`
+   * gathering shared by both an original draft (`generateDraftForProspect`
+   * above) and a Stage 6D follow-up draft (`FollowUpDraftService`) — kept
+   * as one method so a follow-up never runs a second, drifting copy of
+   * these exact queries (Stage 6D Section D: "reuse Stage 6A
+   * personalization infrastructure").
+   */
+  async gatherPersonalizationInputs(prospectId: string): Promise<{
+    prospect: typeof schema.prospects.$inferSelect;
+    evidenceRows: EvidenceRowInput[];
+    painSignals: PainSignalRowInput[];
+    technologyDetections: TechnologyDetectionInput[];
+  }> {
     const prospectRows = await this.db.select().from(schema.prospects).where(eq(schema.prospects.id, prospectId)).limit(1);
     const prospect = prospectRows[0];
     if (!prospect) {
@@ -45,14 +71,7 @@ export class DraftGenerationService {
     }));
     const painSignalInput: PainSignalRowInput[] = painSignalRows.map((r) => ({ id: r.id, topic: r.topic, signalText: r.signalText, sourceUrl: r.sourceUrl }));
 
-    return this.draftService.generateDraft({
-      prospectId,
-      displayName: prospect.displayName,
-      companyName: prospect.companyName,
-      evidenceRows: evidenceInput,
-      painSignals: painSignalInput,
-      technologyDetections,
-    });
+    return { prospect, evidenceRows: evidenceInput, painSignals: painSignalInput, technologyDetections };
   }
 
   private async getLatestTechnologyDetections(companyDomain: string): Promise<TechnologyDetectionInput[]> {

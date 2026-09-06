@@ -17,6 +17,32 @@ import {
 import type { OutreachDraftService } from '../drafts/draft-store.js';
 import { getOrCreateManualSendSequenceId, MANUAL_SEND_STEP_ORDER } from './manual-sequence.js';
 import type { SendApprovedDraftInput, SendApprovedDraftResult, OutreachSendOutcome } from './send-outcome.js';
+import type { FollowUpEligibilityService } from '../follow-up/follow-up-eligibility-service.js';
+import type { FollowUpEligibilityStatus } from '../follow-up/follow-up-eligibility.js';
+
+/** Maps a Stage 6C eligibility status (other than ELIGIBLE) to the Stage 6D send outcome that reports it — never conflated with `BLOCKED`'s kill-switch-only meaning except where the eligibility status itself IS "the kill switch is active." */
+function mapEligibilityStatusToSendOutcome(status: Exclude<FollowUpEligibilityStatus, 'ELIGIBLE'>): OutreachSendOutcome {
+  switch (status) {
+    case 'REPLIED':
+      return 'REPLIED';
+    case 'OPTED_OUT':
+      return 'OPTED_OUT';
+    case 'STOPPED':
+      return 'STOPPED';
+    case 'NOT_DUE':
+      return 'NOT_DUE';
+    case 'ALREADY_SENT':
+      return 'ALREADY_SENT';
+    case 'BLOCKED':
+      return 'BLOCKED';
+    case 'UNKNOWN':
+      return 'FOLLOW_UP_INELIGIBLE';
+    default: {
+      const exhaustive: never = status;
+      return exhaustive;
+    }
+  }
+}
 
 /**
  * The Stage 6B send boundary: `APPROVED DRAFT -> SAFE SINGLE X SEND ->
@@ -50,7 +76,16 @@ export class SendApprovedDraftService {
     private readonly db: MetrivioDb,
     private readonly draftService: OutreachDraftService,
     private readonly sendAdapter: XSendAdapter,
-    private readonly logger?: ReturnType<typeof createLogger>
+    private readonly logger?: ReturnType<typeof createLogger>,
+    /**
+     * Optional — Stage 6D's mandatory pre-send reply-recheck (Section C).
+     * When omitted, or when the reloaded draft carries no `sequenceId`
+     * (an original Stage 6A/6B-shaped draft), behavior is byte-for-byte
+     * identical to Stage 6B: no eligibility recheck runs at all. This
+     * preserves every existing Stage 6B test while adding the follow-up
+     * safety check only for follow-up drafts.
+     */
+    private readonly followUpEligibilityService?: FollowUpEligibilityService
   ) {
     this.config = new SystemConfigService(db);
     this.killSwitch = new KillSwitch(this.config);
@@ -87,6 +122,19 @@ export class SendApprovedDraftService {
       return this.finish(input, { outcome: 'TARGET_INVALID', reason: 'prospect has no canonical X user ID on file — refusing to send based on username alone' });
     }
 
+    // 4b. Mandatory pre-send reply-recheck (Section C): "Draft generated !=
+    // Follow-up still eligible" — reloads authoritative reply/eligibility
+    // state fresh, immediately before this send, rather than trusting the
+    // eligibility check that ran back when the draft was created. Only
+    // applies to a follow-up draft (one carrying its own `sequenceId`) and
+    // only when this service was constructed with a FollowUpEligibilityService.
+    if (draft.sequenceId && this.followUpEligibilityService) {
+      const recheck = await this.followUpEligibilityService.evaluate(input.prospectId, draft.sequenceId);
+      if (recheck.status !== 'ELIGIBLE') {
+        return this.finish(input, { outcome: mapEligibilityStatusToSendOutcome(recheck.status), reason: `pre-send follow-up eligibility recheck: ${recheck.reason}` });
+      }
+    }
+
     // 5. Message validation — the draft's exact text, untouched (Section K), within a conservative, documented length bound (Section J).
     const messageText = draft.messageText;
     if (!messageText || messageText.trim().length === 0) {
@@ -101,7 +149,12 @@ export class SendApprovedDraftService {
     // unique index is the backstop; this lookup decides whether we're
     // looking at a fresh send, a safe retry of a known non-ambiguous
     // failure, or a case that must never be attempted again.
-    const sequenceId = await getOrCreateManualSendSequenceId(this.db);
+    // Section I: a follow-up draft carries its OWN real sequenceId/
+    // sequenceStepOrder — the dedup key resolves from the draft itself when
+    // present, falling back to the Stage 6B manual-send singleton only for
+    // an original (non-follow-up) draft that carries neither.
+    const sequenceId = draft.sequenceId ?? (await getOrCreateManualSendSequenceId(this.db));
+    const sequenceStepOrder = draft.sequenceStepOrder ?? MANUAL_SEND_STEP_ORDER;
     const existingRows = await this.db
       .select()
       .from(schema.outreachMessages)
@@ -109,7 +162,7 @@ export class SendApprovedDraftService {
         and(
           eq(schema.outreachMessages.prospectId, input.prospectId),
           eq(schema.outreachMessages.sequenceId, sequenceId),
-          eq(schema.outreachMessages.sequenceStepOrder, MANUAL_SEND_STEP_ORDER)
+          eq(schema.outreachMessages.sequenceStepOrder, sequenceStepOrder)
         )
       )
       .limit(1);
@@ -169,7 +222,7 @@ export class SendApprovedDraftService {
       });
     }
 
-    return this.performRealSend(input, draft, prospect, messageText, sequenceId, existing?.id);
+    return this.performRealSend(input, draft, prospect, messageText, sequenceId, sequenceStepOrder, existing?.id);
   }
 
   private async performRealSend(
@@ -178,6 +231,7 @@ export class SendApprovedDraftService {
     prospect: typeof schema.prospects.$inferSelect,
     messageText: string,
     sequenceId: string,
+    sequenceStepOrder: number,
     existingRowId: string | undefined
   ): Promise<SendApprovedDraftResult> {
     const personalizationBasis = JSON.stringify({ draftId: draft.id, evidenceReferences: draft.evidenceReferences });
@@ -187,6 +241,7 @@ export class SendApprovedDraftService {
       const outreachMessageId = await this.upsertOutreachMessage(existingRowId, {
         prospectId: input.prospectId,
         sequenceId,
+        sequenceStepOrder,
         personalizationBasis,
         messageContent: messageText,
         status: 'sent',
@@ -203,6 +258,7 @@ export class SendApprovedDraftService {
       const outreachMessageId = await this.upsertOutreachMessage(existingRowId, {
         prospectId: input.prospectId,
         sequenceId,
+        sequenceStepOrder,
         personalizationBasis,
         messageContent: messageText,
         status: 'failed',
@@ -219,6 +275,7 @@ export class SendApprovedDraftService {
     values: {
       prospectId: string;
       sequenceId: string;
+      sequenceStepOrder: number;
       personalizationBasis: string;
       messageContent: string;
       status: 'sent' | 'failed';
@@ -245,7 +302,7 @@ export class SendApprovedDraftService {
       id,
       prospectId: values.prospectId,
       sequenceId: values.sequenceId,
-      sequenceStepOrder: MANUAL_SEND_STEP_ORDER,
+      sequenceStepOrder: values.sequenceStepOrder,
       personalizationBasis: values.personalizationBasis,
       messageContent: values.messageContent,
       channel: 'dm',

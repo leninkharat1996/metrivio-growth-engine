@@ -4,7 +4,8 @@ import { writeAuditLog, schema, type MetrivioDb, type createLogger } from '@metr
 import { applyDraftTransition, isTerminalDraftState, type MessageDraftState } from '../state-machine/draft-state-machine.js';
 import { buildPersonalizationCandidates, type PersonalizationCandidate, type EvidenceRowInput, type PainSignalRowInput, type TechnologyDetectionInput } from '../personalization/personalization-candidates.js';
 import { renderMessageDraft } from './message-templates.js';
-import type { MessageDraft } from './message-draft.js';
+import { renderFollowUpMessageDraft } from '../follow-up/follow-up-message-templates.js';
+import type { MessageDraft, FollowUpIntent } from './message-draft.js';
 
 /**
  * Persists the message-draft lifecycle entirely through the existing
@@ -49,6 +50,11 @@ interface CreatedDetail {
   messageText: string;
   evidenceReferences: string[];
   generatedAt: string;
+  /** Stage 6D additions — present only for a follow-up draft (Section A). */
+  sequenceId?: string;
+  sequenceStepOrder?: number;
+  parentOutreachMessageId?: string;
+  followUpIntent?: FollowUpIntent;
 }
 
 interface TransitionDetail {
@@ -65,6 +71,25 @@ export interface GenerateDraftInput {
   evidenceRows: EvidenceRowInput[];
   painSignals: PainSignalRowInput[];
   technologyDetections: TechnologyDetectionInput[];
+  /**
+   * Stage 6D follow-up fields (Section A/D/F) — all four are populated
+   * together only by `FollowUpDraftService`; an original Stage 6A/6B
+   * caller omits every one of them and gets exactly today's behavior
+   * (`renderMessageDraft`, no evidence exclusion, no sequence fields
+   * persisted). When present, `generateDraft()` renders via
+   * `renderFollowUpMessageDraft()` instead and excludes
+   * `excludeEvidenceId` from candidate selection so the follow-up is
+   * required to reference a *new* verified observation, not the one
+   * already used in the original message.
+   */
+  followUp?: {
+    sequenceId: string;
+    sequenceStepOrder: number;
+    followUpIntent: FollowUpIntent;
+    parentOutreachMessageId?: string;
+    /** The original draft's `selectedHook.evidenceId`, excluded from this follow-up's candidate pool. */
+    excludeEvidenceId?: string;
+  };
 }
 
 export interface GenerateDraftResult {
@@ -94,19 +119,37 @@ export class OutreachDraftService {
       return { draft: nonTerminal, created: false };
     }
 
-    const candidates = buildPersonalizationCandidates({
+    const allCandidates = buildPersonalizationCandidates({
       evidenceRows: input.evidenceRows,
       painSignals: input.painSignals,
       technologyDetections: input.technologyDetections,
       companyName: input.companyName,
     });
+    const candidates = input.followUp?.excludeEvidenceId ? allCandidates.filter((c) => c.evidenceId !== input.followUp?.excludeEvidenceId) : allCandidates;
     const selectedHook = candidates[0] ?? null;
-    const messageText = renderMessageDraft(input.displayName, input.companyName, selectedHook);
+    const messageText = input.followUp
+      ? renderFollowUpMessageDraft(input.displayName, input.companyName, input.followUp.followUpIntent, selectedHook)
+      : renderMessageDraft(input.displayName, input.companyName, selectedHook);
     const evidenceReferences = candidates.map((c) => c.evidenceId);
     const generatedAt = new Date().toISOString();
     const draftId = uuid();
 
-    const detail: CreatedDetail = { sequence: 0, prospectId: input.prospectId, selectedHook, messageText, evidenceReferences, generatedAt };
+    const detail: CreatedDetail = {
+      sequence: 0,
+      prospectId: input.prospectId,
+      selectedHook,
+      messageText,
+      evidenceReferences,
+      generatedAt,
+      ...(input.followUp
+        ? {
+            sequenceId: input.followUp.sequenceId,
+            sequenceStepOrder: input.followUp.sequenceStepOrder,
+            followUpIntent: input.followUp.followUpIntent,
+            ...(input.followUp.parentOutreachMessageId ? { parentOutreachMessageId: input.followUp.parentOutreachMessageId } : {}),
+          }
+        : {}),
+    };
     await writeAuditLog(this.db, {
       actor: 'system',
       actionType: ACTION_TYPES.created,
@@ -115,9 +158,25 @@ export class OutreachDraftService {
       detail: detail as unknown as Record<string, unknown>,
     });
 
-    this.logger?.info({ draftId, prospectId: input.prospectId, hookType: selectedHook?.hookType ?? null }, 'outreach_draft.created');
+    this.logger?.info({ draftId, prospectId: input.prospectId, hookType: selectedHook?.hookType ?? null, isFollowUp: !!input.followUp }, 'outreach_draft.created');
 
-    const draft: MessageDraft = { id: draftId, prospectId: input.prospectId, selectedHook, messageText, evidenceReferences, generatedAt, status: 'DRAFTED' };
+    const draft: MessageDraft = {
+      id: draftId,
+      prospectId: input.prospectId,
+      selectedHook,
+      messageText,
+      evidenceReferences,
+      generatedAt,
+      status: 'DRAFTED',
+      ...(input.followUp
+        ? {
+            sequenceId: input.followUp.sequenceId,
+            sequenceStepOrder: input.followUp.sequenceStepOrder,
+            followUpIntent: input.followUp.followUpIntent,
+            ...(input.followUp.parentOutreachMessageId ? { parentOutreachMessageId: input.followUp.parentOutreachMessageId } : {}),
+          }
+        : {}),
+    };
     return { draft, created: true };
   }
 
@@ -225,6 +284,10 @@ export class OutreachDraftService {
       evidenceReferences: createdEvent.detail.evidenceReferences,
       generatedAt: createdEvent.detail.generatedAt,
       status: 'DRAFTED',
+      ...(createdEvent.detail.sequenceId !== undefined ? { sequenceId: createdEvent.detail.sequenceId } : {}),
+      ...(createdEvent.detail.sequenceStepOrder !== undefined ? { sequenceStepOrder: createdEvent.detail.sequenceStepOrder } : {}),
+      ...(createdEvent.detail.parentOutreachMessageId !== undefined ? { parentOutreachMessageId: createdEvent.detail.parentOutreachMessageId } : {}),
+      ...(createdEvent.detail.followUpIntent !== undefined ? { followUpIntent: createdEvent.detail.followUpIntent } : {}),
     };
 
     for (const event of parsed) {

@@ -12,6 +12,9 @@ import type { PersonalizationCandidate } from '../personalization/personalizatio
  * the state machine. `rejectionReason` is populated only when `status`
  * is `REJECTED`.
  */
+/** Stage 6D follow-up message strategies (Section E) — deterministic templates only, no LLM. */
+export type FollowUpIntent = 'clarification' | 'reminder' | 'final_close';
+
 export interface MessageDraft {
   id: string;
   prospectId: string;
@@ -25,4 +28,15 @@ export interface MessageDraft {
   rejectionReason?: string;
   approvedBy?: string;
   rejectedBy?: string;
+  /**
+   * Stage 6D additions (Section A) — present only for a follow-up draft.
+   * `undefined` for an original Stage 6A/6B-shaped draft, preserving exact
+   * backward compatibility for every existing caller/test that never sets
+   * these fields.
+   */
+  sequenceId?: string;
+  sequenceStepOrder?: number;
+  /** The `outreach_messages.id` of the original message this follow-up responds to, where available. */
+  parentOutreachMessageId?: string;
+  followUpIntent?: FollowUpIntent;
 }

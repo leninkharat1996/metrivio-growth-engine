@@ -18,6 +18,17 @@ export const OUTREACH_SEND_OUTCOMES = [
   'NOT_FOUND',
   'NETWORK_ERROR',
   'UNEXPECTED_ERROR',
+  // Stage 6D additions (Section C) — the mandatory pre-send reply-recheck's
+  // possible outcomes. Deliberately distinct from `BLOCKED`, which is
+  // reserved specifically for "the kill switch is active" — conflating a
+  // reply/opt-out with a kill-switch block would hide the actual reason a
+  // follow-up did not send.
+  'REPLIED',
+  'OPTED_OUT',
+  'STOPPED',
+  'NOT_DUE',
+  /** Catch-all for a follow-up recheck landing on UNKNOWN or ALREADY_SENT immediately before send — fail-closed, never sent. */
+  'FOLLOW_UP_INELIGIBLE',
 ] as const;
 export type OutreachSendOutcome = (typeof OUTREACH_SEND_OUTCOMES)[number];
 

@@ -1,7 +1,7 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
-import { KillSwitch, SystemConfigService, schema, type MetrivioDb } from '@metrivio/core';
+import { KillSwitch, SystemConfigService, type MetrivioDb } from '@metrivio/core';
 import { ReplyDetectionService } from './reply-detection-service.js';
 import { evaluateFollowUpEligibility, type FollowUpEligibilityResult, type FollowUpTimingInput } from './follow-up-eligibility.js';
+import { findNextSequenceStep } from './sequence-step.js';
 import type { ReplyState } from './reply-state.js';
 
 /**
@@ -40,37 +40,10 @@ export class FollowUpEligibilityService {
     let timing: FollowUpTimingInput | null = null;
 
     if (!killSwitchActive && replyState === 'NO_REPLY') {
-      const lastSentRows = await this.db
-        .select()
-        .from(schema.outreachMessages)
-        .where(and(eq(schema.outreachMessages.prospectId, prospectId), eq(schema.outreachMessages.sequenceId, sequenceId), eq(schema.outreachMessages.status, 'sent')))
-        .orderBy(desc(schema.outreachMessages.sequenceStepOrder))
-        .limit(1);
-      const lastSent = lastSentRows[0];
-
-      if (lastSent?.sentAt) {
-        const nextStepOrder = lastSent.sequenceStepOrder + 1;
-        const sequenceRows = await this.db.select().from(schema.sequences).where(eq(schema.sequences.id, sequenceId)).limit(1);
-        const sequenceRow = sequenceRows[0];
-        const steps = sequenceRow ? (JSON.parse(sequenceRow.steps) as Array<{ step_order: number; day_offset: number }>) : [];
-        const nextStep = steps.find((s) => s.step_order === nextStepOrder);
-
-        if (nextStep) {
-          const dedupRows = await this.db
-            .select()
-            .from(schema.outreachMessages)
-            .where(
-              and(
-                eq(schema.outreachMessages.prospectId, prospectId),
-                eq(schema.outreachMessages.sequenceId, sequenceId),
-                eq(schema.outreachMessages.sequenceStepOrder, nextStepOrder),
-                inArray(schema.outreachMessages.status, ['queued', 'sent'])
-              )
-            )
-            .limit(1);
-          nextStepAlreadySent = dedupRows.length > 0;
-          timing = { lastSentAt: lastSent.sentAt, nextStepDayOffset: nextStep.day_offset, now: new Date().toISOString() };
-        }
+      const lookup = await findNextSequenceStep(this.db, prospectId, sequenceId);
+      nextStepAlreadySent = lookup.nextStepAlreadySent;
+      if (lookup.info) {
+        timing = { lastSentAt: lookup.info.lastSentAt, nextStepDayOffset: lookup.info.nextStepDayOffset, now: new Date().toISOString() };
       }
     }
 
