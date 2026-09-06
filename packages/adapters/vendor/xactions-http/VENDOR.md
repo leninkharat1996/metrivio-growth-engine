@@ -1,15 +1,18 @@
-# Vendored: nirholas/xactions (HTTP scraper subtree — read-only, plus one narrow send operation)
+# Vendored: nirholas/xactions (HTTP scraper subtree — mostly read-only, plus two narrow DM operations)
 
 **Vendored per BUILD_PLAN.md Stage 2 / this repository's Stage 4A instructions**, following the same
 vendoring discipline already used for `packages/content/vendor/x-manager` (plain source
 snapshot at a pinned commit, `.git` history not included). Extended in **Stage 6B-R** to add one
 write operation (`dm.js`'s `sendDM`, trimmed — see below) once its request format was verified
 against upstream's own source and test suite, resolving the blocker Stage 6B correctly stopped at.
+Extended again in **Stage 6C** to add two read-only conversation-lookup operations (`getInbox`/
+`getConversation`) to the same `dm.js` excerpt, for reply detection.
 
 - **Source:** https://github.com/nirholas/xactions
 - **Pinned commit:** `52fbf89991668d58f7a9e7abbed4441734f87c01` (2026-09-03)
 - **Pinned version (package.json):** `3.5.0`
-- **Vendored on:** 2026-09-05 (read-only subtree); **extended** 2026-09-06 (Stage 6B-R: `dm.js` excerpt)
+- **Vendored on:** 2026-09-05 (read-only subtree); **extended** 2026-09-06 (Stage 6B-R: `sendDM`
+  excerpt; Stage 6C: `getInbox`/`getConversation` added to the same excerpt)
 - **License:** Apache-2.0 (see `LICENSE` in this directory — unmodified from upstream).
 - **Verified directly against the live repository this session** (not assumed from RESEARCH.md alone):
   cloned at the commit above, confirmed via `git ls-remote` that upstream `main`/`HEAD` had not moved
@@ -53,7 +56,7 @@ src/scrapers/twitter/http/checkpoint.js   — resumable-scrape checkpoint file h
 src/scrapers/twitter/http/profile.js      — scrapeProfile / scrapeProfileById
 src/scrapers/twitter/http/search.js       — searchTweets / searchUsers
 src/scrapers/twitter/http/tweets.js       — scrapeTweets (transitively required by search.js for tweet parsing)
-src/scrapers/twitter/http/dm.js           — sendDM ONLY (Stage 6B-R, TRIMMED EXCERPT — see below, not a whole-file vendor)
+src/scrapers/twitter/http/dm.js           — sendDM (Stage 6B-R) + getInbox/getConversation (Stage 6C), TRIMMED EXCERPT — see below, not a whole-file vendor
 src/scrapers/twitter/http/x-endpoints.generated.js — generated GraphQL query-ID/feature table (see THIRD-PARTY-NOTICES.md)
 src/scrapers/twitter/http/parse/user.js   — parseUserData (pure function, profile normalization)
 src/scrapers/twitter/http/parse/tweet.js  — parseTweetData (pure function, tweet normalization)
@@ -76,14 +79,18 @@ needed for Stage 4A's guest-mode-default / cookie-mode-if-configured design), th
 application layer, Express API server, Prisma schema, Stripe/x402 payment layer, Redis, the MCP server,
 the CLI, the dashboard, and every non-Twitter platform scraper.
 
-## `dm.js` — trimmed excerpt, not a whole-file vendor (Stage 6B-R)
+## `dm.js` — trimmed excerpt, not a whole-file vendor (Stage 6B-R, extended Stage 6C)
 
 Stage 4A originally excluded `dm.js` entirely (write/mutation path, out of that stage's read-only
 scope). Stage 6B needed exactly one DM-send operation and correctly refused to invent its request
 format rather than guess. Stage 6B-R re-cloned upstream at the **same already-pinned commit** and
 inspected `dm.js` directly, together with its own test file `tests/http-scraper/dm.test.js`
 (`describe('sendDM()', ...)`, which asserts the exact request URL and body shape below against a
-mocked client — never a live call, upstream's or ours).
+mocked client — never a live call, upstream's or ours). Stage 6C re-used the same already-cloned
+commit (re-verified: `rev-parse HEAD` still `52fbf89991668d58f7a9e7abbed4441734f87c01`) to add
+`getInbox`/`getConversation` for reply detection, verified the same way against
+`describe('getInbox()', ...)` and `describe('getConversation()', ...)` in the same upstream test
+file.
 
 **What was verified, and against what:**
 - **Request URL/method:** `POST ${REST_BASE}${REST.dmNew}` (`REST.dmNew` already vendored, unchanged,
@@ -110,25 +117,39 @@ mocked client — never a live call, upstream's or ours).
 - **Licensing:** identical Apache-2.0 header, same commit, same repository already accepted for the
   rest of this subtree — no new license terms.
 
-**Only `sendDM` (plus its two private helpers `requireAuth` and `buildDMBody`) was vendored — not the
-whole file**, per Stage 6B-R's explicit "implement only the minimal transport necessary, do not expand
-scope" instruction. Everything else `dm.js` exports was deliberately left out, and is NOT reachable
-from any Metrivio code:
+**Stage 6C addition — `getInbox`/`getConversation`, same verification standard:**
+- **`getInbox`:** `GET ${REST_BASE}${REST.dmInbox}` (`/1.1/dm/inbox_initial_state.json`, already
+  vendored, unchanged) — verified against `dm.test.js`'s `describe('getInbox()', ...)`, which asserts
+  the parsed conversation list shape (`conversationId`, `participants[].id/username`, `type: 'one_to_one'
+  | 'group'`, `unreadCount`, `cursor`) against its `MOCK_INBOX` fixture. `participants[].id` is X's own
+  numeric user ID (`p.user_id`) — this is the canonical-ID field Stage 6C's identity/direction logic
+  reads, never `username`/`name`.
+- **`getConversation`:** `GET ${REST_BASE}${REST.dmConversation}/{conversationId}.json`
+  (`REST.dmConversation`, already vendored, unchanged) — verified against
+  `describe('getConversation()', ...)`'s assertions on `messages[].id`/`senderId`/`createdAt` against
+  its `MOCK_CONVERSATION` fixture. `senderId` is the same canonical numeric user ID field.
+- **Error behavior:** identical to `sendDM` — both go through the already-vendored, unchanged
+  `client.request()`, so the same `AuthError`/`RateLimitError`/`NotFoundError`/`NetworkError`/
+  `TwitterApiError` classification applies with no new error-handling path.
+
+**Only `sendDM`+`buildDMBody`+`requireAuth` (Stage 6B-R) and `getInbox`+`getConversation`+
+`parseInboxState`+`parseConversationData`+`parseReactions` (Stage 6C) were vendored — not the whole
+file**, per both stages' explicit "implement only the minimal transport necessary, do not expand
+scope" instructions. Everything else `dm.js` exports remains deliberately left out, and is NOT
+reachable from any Metrivio code:
 - `sendDMByUsername` / `resolveUserId` — username-based targeting, which Stage 6B's own contract
   rejects in favor of a canonical user ID.
-- `getInbox` / `getConversation` (+ their parsing helpers) — DM/conversation *reading*, i.e. reply
-  detection, explicitly deferred to a future stage by both Stage 6A and Stage 6B.
 - `deleteMessage` — a second, distinct write capability (deleting a sent DM) with no corresponding
   contract anywhere in this codebase.
-- `markRead` — read-receipt state, unrelated to sending.
+- `markRead` — read-receipt state, unrelated to sending or reply detection.
 
-The vendored `dm.js` in this directory is a byte-identical copy of the three retained functions (only
-the `import { GRAPHQL, ... }` line was narrowed to `import { REST, REST_BASE }`, since the omitted
-functions were the only consumers of `GRAPHQL`) — see the file's own header comment for the same
-provenance note in-line. Because this is a hand-trimmed excerpt rather than a whole-file copy, a
-future pin bump requires a manual line-by-line diff of `sendDM`/`buildDMBody`/`requireAuth` against
-the new upstream `dm.js`, not a straight file replacement — called out explicitly in the update
-procedure below.
+The vendored `dm.js` in this directory is a byte-identical copy of these retained functions (only the
+`import { GRAPHQL, ... }` line was narrowed to `import { REST, REST_BASE }`, since the omitted
+functions — `sendDMByUsername`/`resolveUserId` — were the only consumers of `GRAPHQL`) — see the
+file's own header comment for the same provenance note in-line. Because this is a hand-trimmed
+excerpt rather than a whole-file copy, a future pin bump requires a manual line-by-line diff of every
+retained function against the new upstream `dm.js`, not a straight file replacement — called out
+explicitly in the update procedure below.
 
 ## Hand-authored TypeScript declarations (NOT part of the upstream snapshot)
 
@@ -147,7 +168,8 @@ genuinely ours.
 1. Re-clone `nirholas/xactions` at the desired newer commit.
 2. Diff its `src/scrapers/twitter/http/` (and `src/client/auth/userAgents.generated.js`) against this
    directory's corresponding files. **`dm.js` is hand-trimmed, not a whole-file copy** — diff the new
-   upstream `dm.js`'s `sendDM`/`buildDMBody`/`requireAuth` specifically against this directory's
+   upstream `dm.js`'s `sendDM`/`buildDMBody`/`requireAuth`/`getInbox`/`getConversation`/
+   `parseInboxState`/`parseConversationData`/`parseReactions` specifically against this directory's
    `dm.js`, and re-verify the request URL/body/response assertions in the new upstream
    `tests/http-scraper/dm.test.js` still match before updating.
 3. Re-run the "load with plain Node" sanity check (see above) against the new files before replacing.
