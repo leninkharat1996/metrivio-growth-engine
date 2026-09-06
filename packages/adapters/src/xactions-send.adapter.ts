@@ -2,55 +2,81 @@ import type { XSendAdapter, SendDirectMessageInput, SendDirectMessageResult } fr
 import {
   KillSwitch,
   XSendAuthenticationRequiredError,
+  XSendRateLimitedError,
+  XSendNotFoundError,
+  XSendNetworkError,
   XSendUnexpectedError,
 } from '@metrivio/core';
 
 import { TwitterHttpClient } from '../vendor/xactions-http/src/scrapers/twitter/http/client.js';
+import { sendDM } from '../vendor/xactions-http/src/scrapers/twitter/http/dm.js';
+import {
+  TwitterApiError,
+  RateLimitError,
+  AuthError,
+  NotFoundError,
+  NetworkError,
+} from '../vendor/xactions-http/src/scrapers/twitter/http/errors.js';
 
 /**
- * XActions-backed implementation of `XSendAdapter` — Stage 6B.
+ * XActions-backed implementation of `XSendAdapter` — Stage 6B-R.
  *
- * **Does not yet perform a real X network write.** This is a deliberate,
- * researched decision, not an oversight — see the "CRITICAL: X WRITE
- * IMPLEMENTATION RESEARCH" finding this stage's instructions required
- * before writing any code:
+ * Stage 6B correctly refused to guess X's DM-send request format after
+ * finding that the vendored XActions subtree deliberately excluded
+ * `dm.js`. Stage 6B-R resolved that blocker by re-cloning upstream at the
+ * *same already-pinned commit* and verifying `dm.js`'s `sendDM()` against
+ * its own test suite (`tests/http-scraper/dm.test.js`) before vendoring a
+ * trimmed excerpt of exactly that function — see
+ * `packages/adapters/vendor/xactions-http/VENDOR.md`'s dedicated `dm.js`
+ * section for the full source-verification record (request URL/body,
+ * auth, target-identity, response shape, error behavior, licensing).
  *
- *   - The vendored XActions subtree (`packages/adapters/vendor/xactions-http/`)
- *     deliberately excludes `dm.js` — VENDOR.md's own "Deliberately NOT
- *     vendored" list names it explicitly, alongside `actions.js`/
- *     `engagement.js`/`media.js`, as a write/mutation path out of Stage
- *     4A's read-only scope.
- *   - `endpoints.js` (vendored wholesale because `client.js`/`profile.js`/
- *     `search.js`/`tweets.js` all import shared constants from it) happens
- *     to carry the bare REST path string `REST.dmNew = '/1.1/dm/new2.json'`
- *     — but a path string is not a request format. The actual JSON/form
- *     body shape X's DM-send endpoint requires (recipient/conversation
- *     addressing, any required companion fields) lives in upstream's
- *     `dm.js`, which was never vendored, so it is not verified anywhere in
- *     this codebase.
- *   - Per instruction, inventing that request format rather than sourcing
- *     it from verified code would risk a malformed request (at best, an
- *     immediate rejection; at worst, behavior indistinguishable from
- *     automation abuse to X's own systems) — exactly the "speculative X
- *     write protocol" this stage was told to stop short of.
- *
- * What this class DOES do for real: kill-switch gating (identical to
- * every other adapter in this codebase) and an authentication
- * precondition check (`TwitterHttpClient.isAuthenticated()`) — DM sending
+ * This class mirrors `XActionsReadAdapter`'s exact structure: the kill
+ * switch is checked first (identical to every other adapter in this
+ * codebase), an authentication precondition is checked next (DM sending
  * has no guest-mode equivalent on X, unlike the read-only profile/search
- * paths, so a request with no authenticated session is refused before
- * anything else, independent of the capability gap above. Once a future
- * stage vendors (or independently, carefully re-implements from verified
- * source) the actual DM request format, only this file's final branch
- * needs to change — the kill-switch/auth-precondition/error-mapping
- * scaffolding around it is already correct and already tested.
+ * paths — `requireAuth()` inside the vendored `sendDM()` would throw the
+ * same underlying `AuthError` regardless, but checking it here first keeps
+ * this adapter's own precondition explicit and matches the Stage 6B
+ * behavior this class replaces), and every underlying XActions error is
+ * mapped to the generic `XSend*Error` taxonomy before it ever leaves this
+ * file — nothing vendor-specific escapes to `SendApprovedDraftService`.
  */
 export interface XActionsSendAdapterOptions {
   killSwitch: KillSwitch;
-  /** Cookie string (`auth_token=...; ct0=...`). Required for any real send attempt — see the class doc comment. Must come from the existing credential/encryption storage (DATABASE.md `credentials` table), never a plain environment variable read inline at call time. */
+  /** Cookie string (`auth_token=...; ct0=...`). Required for any real send attempt — DM sending has no guest-mode equivalent. Must come from the existing credential/encryption storage (DATABASE.md `credentials` table), never a plain environment variable read inline at call time. */
   sessionCookie?: string;
   /** Test-only escape hatch to inject a pre-built client instead of constructing one. Never used in production wiring. */
   client?: TwitterHttpClient;
+}
+
+/**
+ * Maps XActions' own error hierarchy (never exposed outside this file) to
+ * the generic `XSend*Error` classes every `XSendAdapter` implementation
+ * must throw instead. Order matters — mirrors
+ * `xactions-read.adapter.ts`'s `mapError` exactly: check the more specific
+ * subclasses first (`RateLimitError`/`AuthError`/`NotFoundError`/
+ * `NetworkError` all extend `TwitterApiError`).
+ */
+function mapError(adapterName: string, method: string, err: unknown): Error {
+  if (err instanceof RateLimitError) {
+    return new XSendRateLimitedError(adapterName, method, err.message);
+  }
+  if (err instanceof AuthError) {
+    return new XSendAuthenticationRequiredError(adapterName, method, err.message);
+  }
+  if (err instanceof NotFoundError) {
+    return new XSendNotFoundError(adapterName, method, err.message);
+  }
+  if (err instanceof NetworkError) {
+    return new XSendNetworkError(adapterName, method, err.message);
+  }
+  if (err instanceof TwitterApiError) {
+    // A generic/unclassified API error (e.g. a malformed/unrecognized
+    // response shape) — never silently treated as a successful send.
+    return new XSendUnexpectedError(adapterName, method, err.message);
+  }
+  return new XSendUnexpectedError(adapterName, method, err instanceof Error ? err.message : String(err));
 }
 
 export class XActionsSendAdapter implements XSendAdapter {
@@ -75,14 +101,14 @@ export class XActionsSendAdapter implements XSendAdapter {
       throw new XSendAuthenticationRequiredError(XActionsSendAdapter.NAME, 'sendDirectMessage', 'no session cookie configured');
     }
 
-    // See this class's doc comment: no verified request format exists for
-    // X's DM-send endpoint in this codebase's vendored source. Refuses
-    // rather than guesses.
-    void input;
-    throw new XSendUnexpectedError(
-      XActionsSendAdapter.NAME,
-      'sendDirectMessage',
-      'no verified DM request format is available (dm.js was deliberately excluded from the vendored XActions subtree — see VENDOR.md and RISK_REGISTER.md Stage 6B); refusing to send a speculative/invented request rather than risk a malformed write'
-    );
+    try {
+      const result = await sendDM(this.client, input.targetUserId, input.messageText);
+      return {
+        xMessageId: result.messageId || undefined,
+        sentAt: result.createdAt,
+      };
+    } catch (err) {
+      throw mapError(XActionsSendAdapter.NAME, 'sendDirectMessage', err);
+    }
   }
 }
