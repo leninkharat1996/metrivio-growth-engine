@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Metrivio X-only prospecting, outreach, and content engine. See docs/ for RESEARCH.md, ARCHITECTURE.md, DATABASE.md, BUILD_PLAN.md, RISK_REGISTER.md.",
+  "type": "module",
   "workspaces": [
     "packages/*"
   ],
@@ -21,7 +22,6 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@typescript-eslint/eslint-plugin": "^8.15.0",
-    "@typescript-eslint/parser": "^8.15.0",
     "drizzle-kit": "^0.28.1",
     "eslint": "^8.57.0",
     "tsx": "^4.19.2",
