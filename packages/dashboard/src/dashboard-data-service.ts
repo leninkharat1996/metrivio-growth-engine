@@ -5,9 +5,13 @@ import {
   OwnContentPerformanceService,
   GrowthTechniqueLibrary,
   SchedulingReadinessService,
+  PerformanceAnalysisService,
+  BenchmarkingService,
   type WeeklyIntelligenceReport,
   type PostPerformanceSummary,
   type GrowthTechnique,
+  type PerformanceGroupSummary,
+  type BenchmarkReport,
 } from '@metrivio/content';
 
 /**
@@ -23,6 +27,13 @@ import {
  * pipeline. Still no publishing controls of any kind: this only ever reads
  * `content_drafts`/`audit_log`, never calls `PublishApprovedContentService`
  * or `XPublishAdapter`.
+ *
+ * Stage 9, Section P extends this further with `performanceAndLearning` —
+ * grouped own-content performance, benchmarking gaps, and explicit
+ * data-quality warnings (Section Q: dashboard/reports must distinguish
+ * KNOWN/UNKNOWN/INSUFFICIENT_DATA, never silently convert missing to
+ * zero). Purely a projection of `packages/content`'s Stage 9 analytics
+ * services — no new analysis logic lives in this package.
  */
 export interface DashboardData {
   generatedAt: string;
@@ -38,6 +49,23 @@ export interface DashboardData {
   growthTechniques: GrowthTechnique[];
   recommendedNextContent: WeeklyIntelligenceReport['recommendedPosts'];
   publishingStatus: PublishingStatusSummary;
+  performanceAndLearning: PerformanceAndLearningSummary;
+}
+
+export interface DataQualityWarning {
+  area: string;
+  message: string;
+}
+
+export interface PerformanceAndLearningSummary {
+  overallBaselineScore: number | null;
+  totalPostsAnalyzed: number;
+  byTopic: PerformanceGroupSummary[];
+  byHookType: PerformanceGroupSummary[];
+  byFormat: PerformanceGroupSummary[];
+  underperformingThemes: PerformanceGroupSummary[];
+  benchmarking: BenchmarkReport;
+  dataQualityWarnings: DataQualityWarning[];
 }
 
 export interface PublishingStatusActivity {
@@ -65,12 +93,16 @@ export class DashboardDataService {
   private readonly ownContent: OwnContentPerformanceService;
   private readonly techniques: GrowthTechniqueLibrary;
   private readonly scheduling: SchedulingReadinessService;
+  private readonly performanceAnalysis: PerformanceAnalysisService;
+  private readonly benchmarking: BenchmarkingService;
 
   constructor(private readonly db: MetrivioDb) {
     this.weeklyReport = new WeeklyIntelligenceReportService(db);
     this.ownContent = new OwnContentPerformanceService(db);
     this.techniques = new GrowthTechniqueLibrary(db);
     this.scheduling = new SchedulingReadinessService(db);
+    this.performanceAnalysis = new PerformanceAnalysisService(db);
+    this.benchmarking = new BenchmarkingService(db);
   }
 
   async build(now: string = new Date().toISOString()): Promise<DashboardData> {
@@ -84,6 +116,7 @@ export class DashboardDataService {
 
     const growthTechniques = await this.techniques.list();
     const publishingStatus = await this.buildPublishingStatus();
+    const performanceAndLearning = await this.buildPerformanceAndLearning();
 
     return {
       generatedAt: now,
@@ -97,6 +130,39 @@ export class DashboardDataService {
       growthTechniques,
       recommendedNextContent: report.recommendedPosts,
       publishingStatus,
+      performanceAndLearning,
+    };
+  }
+
+  private async buildPerformanceAndLearning(): Promise<PerformanceAndLearningSummary> {
+    const analysis = await this.performanceAnalysis.analyze();
+    const benchmarking = await this.benchmarking.analyze();
+
+    const underperformingThemes = [...analysis.byTopic, ...analysis.byPillar, ...analysis.byHookType, ...analysis.byFormat, ...analysis.byCtaType].filter(
+      (g) => g.performanceDirection === 'UNDERPERFORMING'
+    );
+
+    const dataQualityWarnings: DataQualityWarning[] = [];
+    if (analysis.totalPostsAnalyzed === 0) {
+      dataQualityWarnings.push({ area: 'performance', message: 'no own-content performance snapshots have been ingested yet — every performance figure below is INSUFFICIENT_DATA' });
+    }
+    if (analysis.overallBaselineScore === null && analysis.totalPostsAnalyzed > 0) {
+      dataQualityWarnings.push({ area: 'performance', message: 'no post has enough reach/engagement/ICP/business-intent data to compute a content-value score yet' });
+    }
+    const insufficientGroups = [...analysis.byTopic, ...analysis.byHookType].filter((g) => g.patternStrength === 'INSUFFICIENT_DATA');
+    if (insufficientGroups.length > 0) {
+      dataQualityWarnings.push({ area: 'patterns', message: `${insufficientGroups.length} topic/hook group(s) have fewer than 3 posts — treated as INSUFFICIENT_DATA, not a confirmed pattern` });
+    }
+
+    return {
+      overallBaselineScore: analysis.overallBaselineScore,
+      totalPostsAnalyzed: analysis.totalPostsAnalyzed,
+      byTopic: analysis.byTopic,
+      byHookType: analysis.byHookType,
+      byFormat: analysis.byFormat,
+      underperformingThemes,
+      benchmarking,
+      dataQualityWarnings,
     };
   }
 

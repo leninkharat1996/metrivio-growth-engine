@@ -18,6 +18,13 @@ import { GenerateContentDraftsHandler } from './generate-content-drafts-handler.
 import { ValidateContentDraftsHandler } from './validate-content-drafts-handler.js';
 import { AnalyzeOwnContentHandler } from './analyze-own-content-handler.js';
 import { PublishDueContentHandler } from './publish-due-content-handler.js';
+import { CollectPostPerformanceHandler } from './collect-post-performance-handler.js';
+import { AnalyzeContentPerformanceHandler } from './analyze-content-performance-handler.js';
+import { UpdateGrowthTechniquesHandler } from './update-growth-techniques-handler.js';
+import { GenerateContentRecommendationsHandler } from './generate-content-recommendations-handler.js';
+import { PerformanceAnalysisService } from '../analytics/performance-analysis-service.js';
+import { GrowthTechniqueLearningService } from '../analytics/growth-technique-learning-service.js';
+import { ContentRecommendationEngine } from '../analytics/content-recommendation-engine.js';
 import type { ContentAutomationJobType } from './job-types.js';
 
 /**
@@ -36,6 +43,14 @@ import type { ContentAutomationJobType } from './job-types.js';
  * every existing Stage 7 caller/test is unaffected). When provided, one
  * additional handler (`PublishDueContentHandler`) is registered, wired
  * through `PublishApprovedContentService` — never directly to the adapter.
+ *
+ * Stage 9 registers its four handlers (`COLLECT_POST_PERFORMANCE`,
+ * `ANALYZE_CONTENT_PERFORMANCE`, `UPDATE_GROWTH_TECHNIQUES`,
+ * `GENERATE_CONTENT_RECOMMENDATIONS`) unconditionally — none of them
+ * requires anything beyond the already-required `db`/`xReadAdapter`, and
+ * all four are read/analysis-only (the one write any of them performs is
+ * `COLLECT_POST_PERFORMANCE`'s own identity-only `icpEngagementCount`
+ * refresh — never content, approval, or publish state).
  */
 export function createContentAutomationScheduler(
   db: MetrivioDb,
@@ -64,6 +79,10 @@ export function createContentAutomationScheduler(
     new GenerateContentDraftsHandler(db, drafts),
     new ValidateContentDraftsHandler(db, drafts),
     new AnalyzeOwnContentHandler(performance),
+    new CollectPostPerformanceHandler(db, xReadAdapter, config),
+    new AnalyzeContentPerformanceHandler(db, new PerformanceAnalysisService(db)),
+    new UpdateGrowthTechniquesHandler(new GrowthTechniqueLearningService(db)),
+    new GenerateContentRecommendationsHandler(db, new ContentRecommendationEngine(db)),
   ];
 
   if (xPublishAdapter) {

@@ -86,6 +86,49 @@ ${table(
   ['Draft ID', 'Outcome', 'X Post ID', 'Timestamp'],
   data.publishingStatus.recentActivity.map((a) => [a.draftId, a.outcome, a.xPostId ?? 'n/a', a.timestamp])
 )}
+
+<h2>11. Performance &amp; Learning (Stage 9)</h2>
+<p class="meta">Overall baseline content-value score: ${data.performanceAndLearning.overallBaselineScore == null ? 'UNKNOWN (no scoreable posts yet)' : String(data.performanceAndLearning.overallBaselineScore)} — from ${data.performanceAndLearning.totalPostsAnalyzed} post(s) analyzed.</p>
+
+<h3>By Topic</h3>
+${table(
+  ['Topic', 'Sample Size', 'Avg Content Value', 'Pattern Strength', 'Direction'],
+  data.performanceAndLearning.byTopic.map((g) => [g.value, String(g.sampleSize), g.averageContentValueScore == null ? 'UNKNOWN' : String(g.averageContentValueScore), g.patternStrength, g.performanceDirection])
+)}
+
+<h3>By Hook Type</h3>
+${table(
+  ['Hook Type', 'Sample Size', 'Avg Content Value', 'Pattern Strength', 'Direction'],
+  data.performanceAndLearning.byHookType.map((g) => [g.value, String(g.sampleSize), g.averageContentValueScore == null ? 'UNKNOWN' : String(g.averageContentValueScore), g.patternStrength, g.performanceDirection])
+)}
+
+<h3>By Format</h3>
+${table(
+  ['Format', 'Sample Size', 'Avg Content Value', 'Pattern Strength', 'Direction'],
+  data.performanceAndLearning.byFormat.map((g) => [g.value, String(g.sampleSize), g.averageContentValueScore == null ? 'UNKNOWN' : String(g.averageContentValueScore), g.patternStrength, g.performanceDirection])
+)}
+
+<h3>Underperforming Themes</h3>
+${table(
+  ['Dimension', 'Value', 'Sample Size', 'Avg Content Value'],
+  data.performanceAndLearning.underperformingThemes.map((g) => [g.dimension, g.value, String(g.sampleSize), g.averageContentValueScore == null ? 'UNKNOWN' : String(g.averageContentValueScore)])
+)}
+
+<h3>Competitor/Expert Benchmarking Gaps</h3>
+${table(
+  ['Pain Category', 'Competitor Signal Count', 'Competitor Account Count'],
+  data.performanceAndLearning.benchmarking.topicGaps.map((g) => [g.painCategory, String(g.competitorSignalCount), String(g.competitorAccountCount)])
+)}
+${table(
+  ['Hook Type', 'Expert Usage Count', 'Own Usage Count'],
+  data.performanceAndLearning.benchmarking.hookPatternGaps.map((g) => [g.hookType, String(g.expertUsageCount), String(g.ownUsageCount)])
+)}
+
+<h3>Data Quality Warnings</h3>
+${table(
+  ['Area', 'Warning'],
+  data.performanceAndLearning.dataQualityWarnings.map((w) => [w.area, w.message])
+)}
 </body>
 </html>`;
 }

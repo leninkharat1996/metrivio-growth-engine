@@ -1,7 +1,8 @@
 import type { PainTaxonomyCategory } from '../pain-taxonomy/pain-taxonomy.js';
 import type { ContentConfidenceLevel } from '../confidence.js';
 
-export const CONTENT_SIGNAL_TYPES = ['icp_post', 'competitor_post', 'expert_post', 'web_research', 'own_post'] as const;
+/** Stage 9, Section G — `own_post_engagement` covers a reply/mention received on one of Metrivio's own published posts (distinct from `own_post`, which is the post itself). */
+export const CONTENT_SIGNAL_TYPES = ['icp_post', 'competitor_post', 'expert_post', 'web_research', 'own_post', 'own_post_engagement'] as const;
 export type ContentSignalType = (typeof CONTENT_SIGNAL_TYPES)[number];
 
 export const CONTENT_SOURCE_TYPES = ['x_post', 'web_article'] as const;
@@ -31,6 +32,8 @@ export interface ContentSignalExtraction {
   buyingSignal?: string;
   trigger?: string;
   emotionalIntensity?: 'low' | 'medium' | 'high';
+  /** Stage 9, Section G — set only on `own_post_engagement` signals. */
+  businessIntent?: 'GENUINE_INTENT' | 'GENERIC_ENGAGEMENT' | 'UNKNOWN';
   claimSupported?: string;
   [key: string]: unknown;
 }

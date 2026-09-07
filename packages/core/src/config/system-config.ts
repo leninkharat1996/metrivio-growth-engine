@@ -115,6 +115,15 @@ export const SYSTEM_CONFIG_KEYS = {
    * publish without a further per-run human action.
    */
   contentPublishingAutonomousEnabled: 'content.publishing.autonomous_enabled',
+  /**
+   * Stage 9 — the X username Metrivio's own account publishes under.
+   * Needed to construct a tweet URL (`https://x.com/{handle}/status/{id}`)
+   * for `XReadAdapter.getEngagers()` and a mention-search query for
+   * business-intent collection — neither of which this codebase had any
+   * prior need to know. Optional/unset by default (fails closed to "skip
+   * engagement collection, report the gap" rather than guessing a handle).
+   */
+  contentPublishingOwnXHandle: 'content.publishing.own_x_handle',
 } as const;
 
 /** See `outreachMaxMessageLength`'s doc comment above — conservative and documented, not sourced from a verified X platform limit. */
@@ -290,6 +299,16 @@ export class SystemConfigService {
 
   async setContentPublishingAutonomousEnabled(enabled: boolean, updatedBy: string): Promise<void> {
     await this.setRaw(SYSTEM_CONFIG_KEYS.contentPublishingAutonomousEnabled, String(enabled), updatedBy);
+  }
+
+  /** See `contentPublishingOwnXHandle`'s doc comment — `null` when unset, never a guessed/default handle. */
+  async getContentPublishingOwnXHandle(): Promise<string | null> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.contentPublishingOwnXHandle);
+    return raw ?? null;
+  }
+
+  async setContentPublishingOwnXHandle(handle: string, updatedBy: string): Promise<void> {
+    await this.setRaw(SYSTEM_CONFIG_KEYS.contentPublishingOwnXHandle, handle, updatedBy);
   }
 
   async isSessionHealthAutoDowngradeEnabled(): Promise<boolean> {

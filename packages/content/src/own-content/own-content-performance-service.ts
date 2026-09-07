@@ -2,6 +2,7 @@ import { desc, eq } from 'drizzle-orm';
 import { schema, writeAuditLog, type MetrivioDb, type createLogger } from '@metrivio/core';
 import { classifyPainCategory } from '../pain-taxonomy/pain-taxonomy.js';
 import { classifyHookType, type HookType } from '../hooks/hook-classifier.js';
+import { classifyCtaType, type CtaType } from '../analytics/cta-classifier.js';
 import type { PainTaxonomyCategory } from '../pain-taxonomy/pain-taxonomy.js';
 
 /**
@@ -36,6 +37,8 @@ export interface OwnPostMetricsInput {
 export interface OwnPostMetricsSnapshot extends OwnPostMetricsInput {
   hookType: HookType | null;
   painCategory: PainTaxonomyCategory | null;
+  /** Stage 9, Section E — derived from `text` exactly like `hookType`/`painCategory` above; `null` only when no text was supplied. */
+  ctaType: CtaType | null;
   capturedAt: string;
 }
 
@@ -72,6 +75,7 @@ export class OwnContentPerformanceService {
       icpEngagementCount: input.icpEngagementCount ?? null,
       hookType: input.text ? classifyHookType(input.text) : null,
       painCategory: input.text ? classifyPainCategory(input.text) : null,
+      ctaType: input.text ? classifyCtaType(input.text) : null,
       capturedAt,
     };
 

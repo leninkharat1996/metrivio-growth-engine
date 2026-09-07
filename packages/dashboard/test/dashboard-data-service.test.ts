@@ -147,3 +147,43 @@ describe('DashboardDataService.build — Stage 8 publishing status', () => {
     expect(published?.draftId).toBe(draft.id);
   });
 });
+
+describe('DashboardDataService.build — Stage 9 performance & learning', () => {
+  it('reports UNKNOWN overall baseline and a data-quality warning with no performance data', async () => {
+    const data = await service.build();
+    expect(data.performanceAndLearning.overallBaselineScore).toBeNull();
+    expect(data.performanceAndLearning.totalPostsAnalyzed).toBe(0);
+    expect(data.performanceAndLearning.dataQualityWarnings.some((w) => w.area === 'performance')).toBe(true);
+  });
+
+  it('groups own performance by topic and hook type', async () => {
+    const performance = new OwnContentPerformanceService(db);
+    await performance.ingestSnapshot({ postId: 'p1', text: 'Is CAC climbing?', impressions: 1000 });
+    const data = await service.build();
+    expect(data.performanceAndLearning.byHookType.some((g) => g.value === 'question_hook')).toBe(true);
+  });
+
+  it('flags an insufficient-sample-size warning when a group has fewer than 3 posts', async () => {
+    const performance = new OwnContentPerformanceService(db);
+    await performance.ingestSnapshot({ postId: 'p1', text: 'Is CAC climbing?', impressions: 1000 });
+    const data = await service.build();
+    expect(data.performanceAndLearning.dataQualityWarnings.some((w) => w.area === 'patterns')).toBe(true);
+  });
+
+  it('surfaces benchmarking gaps from competitor/expert signals', async () => {
+    const signals = new ContentSignalStore(db);
+    for (let i = 0; i < 3; i++) {
+      await signals.create({ signalType: 'competitor_post', sourceType: 'x_post', confidence: 'OBSERVATION', painCategory: 'attribution', accountId: `a${i}` });
+    }
+    const data = await service.build();
+    expect(data.performanceAndLearning.benchmarking.topicGaps.some((g) => g.painCategory === 'attribution')).toBe(true);
+  });
+
+  it('never fabricates a metric: a post with no impressions never contributes a fake reach score', async () => {
+    const performance = new OwnContentPerformanceService(db);
+    await performance.ingestSnapshot({ postId: 'p1', text: 'no reach data', draftId: undefined });
+    const data = await service.build();
+    // No content-value score should exist for this post since nothing is available.
+    expect(data.performanceAndLearning.overallBaselineScore).toBeNull();
+  });
+});

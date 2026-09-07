@@ -284,7 +284,7 @@ export const contentSignals = sqliteTable(
   'content_signals',
   {
     id: text('id').primaryKey(),
-    signalType: text('signal_type').notNull().$type<'icp_post' | 'competitor_post' | 'expert_post' | 'web_research' | 'own_post'>(),
+    signalType: text('signal_type').notNull().$type<'icp_post' | 'competitor_post' | 'expert_post' | 'web_research' | 'own_post' | 'own_post_engagement'>(),
     sourceType: text('source_type').notNull().$type<'x_post' | 'web_article'>(),
     sourceUrl: text('source_url'),
     /** Links back to an existing `prospects` row for an ICP-sourced signal — reuses Stage 4 identity, never duplicated (Section A). Null for competitor/expert/web signals. */
