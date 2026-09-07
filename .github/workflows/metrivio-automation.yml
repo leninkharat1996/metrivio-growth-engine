@@ -1,0 +1,119 @@
+name: Metrivio Automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: Comma-separated job types. Leave blank for the safe research set.
+        required: false
+        default: ''
+      max_items:
+        description: Maximum items per job
+        required: false
+        default: '10'
+  schedule:
+    - cron: '17 5 * * *'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: metrivio-automation-main
+  cancel-in-progress: false
+
+jobs:
+  automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_PATH: ./var/metrivio.sqlite
+      NODE_ENV: production
+      PROSPECTING_OUTREACH_AUTOMATION_MODE: dry_run
+      CONTENT_PUBLISHING_AUTOMATION_MODE: dry_run
+      KILL_SWITCH: 'false'
+      METRIVIO_MAX_ITEMS: ${{ inputs.max_items || '10' }}
+      METRIVIO_JOBS: ${{ inputs.jobs || 'x_prospect_discovery,evidence_assembly_batch,website_evidence_batch,ingest_content_signals,analyze_icp_conversations,analyze_competitor_content,analyze_expert_content,generate_content_opportunities,analyze_own_content,collect_post_performance,analyze_content_performance,update_growth_techniques,generate_content_recommendations' }}
+      XACTIONS_SESSION_COOKIE: ${{ secrets.XACTIONS_SESSION_COOKIE }}
+      METRIVIO_DB_KEY: ${{ secrets.METRIVIO_DB_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore previous encrypted database
+        shell: bash
+        run: |
+          mkdir -p var restore
+          previous_run="$(gh run list --workflow metrivio-automation.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -n "$previous_run" ]; then
+            echo "Restoring database artifact from workflow run $previous_run"
+            if gh run download "$previous_run" --name metrivio-db --dir restore; then
+              if [ -f restore/metrivio.sqlite.enc ]; then
+                if [ -z "$METRIVIO_DB_KEY" ]; then
+                  echo "METRIVIO_DB_KEY is required to decrypt an existing database artifact"
+                  exit 1
+                fi
+                openssl enc -d -aes-256-cbc -pbkdf2 -in restore/metrivio.sqlite.enc -out var/metrivio.sqlite -pass env:METRIVIO_DB_KEY
+              fi
+            else
+              echo "No downloadable previous database artifact; starting from a fresh database."
+            fi
+          else
+            echo "No previous successful automation run found; starting from a fresh database."
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Initialize database
+        run: npm run db:migrate
+
+      - name: Run Metrivio automation
+        run: npx tsx scripts/run-automation.ts
+
+      - name: Encrypt database for persistence
+        if: always() && hashFiles('var/metrivio.sqlite') != ''
+        shell: bash
+        run: |
+          if [ -z "$METRIVIO_DB_KEY" ]; then
+            echo "METRIVIO_DB_KEY secret is required before the database can be persisted"
+            exit 1
+          fi
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in var/metrivio.sqlite -out var/metrivio.sqlite.enc -pass env:METRIVIO_DB_KEY
+          rm -f var/metrivio.sqlite var/metrivio.sqlite-wal var/metrivio.sqlite-shm
+        env:
+          METRIVIO_DB_KEY: ${{ secrets.METRIVIO_DB_KEY }}
+
+      - name: Upload encrypted database state
+        if: always() && hashFiles('var/metrivio.sqlite.enc') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrivio-db
+          path: var/metrivio.sqlite.enc
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Write run summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Metrivio Automation'
+            echo ''
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Trigger: \`${GITHUB_EVENT_NAME}\`"
+            echo "- Jobs: \`${METRIVIO_JOBS}\`"
+            echo "- Max items: \`${METRIVIO_MAX_ITEMS}\`"
+            echo '- Outreach sends: disabled in this runner'
+            echo '- Autonomous publishing: disabled in this runner'
+            echo '- SQLite state: encrypted before artifact upload'
+          } >> "$GITHUB_STEP_SUMMARY"
