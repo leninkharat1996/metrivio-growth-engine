@@ -4,11 +4,23 @@ import {
   KillSwitch,
   loadEnv,
   resetEnvCache,
+  schema,
   SystemConfigService,
 } from '@metrivio/core';
-import { XActionsReadAdapter, XActionsReplyDetectorAdapter } from '@metrivio/adapters';
+import {
+  WebsiteContentAdapter,
+  XActionsReadAdapter,
+  XActionsReplyDetectorAdapter,
+  createDefaultTechAnalyzerAdapter,
+} from '@metrivio/adapters';
 import { createContentAutomationScheduler, runContentAutomationJob } from '@metrivio/content';
 import { createOutreachAutomationScheduler, runOutreachAutomationJob } from '@metrivio/outreach';
+import {
+  DiscoveryService,
+  EvidenceAssemblyService,
+  TechnologyEnrichmentService,
+  WebsiteEvidenceService,
+} from '@metrivio/prospecting';
 
 const CONTENT_JOBS = new Set([
   'ingest_content_signals',
@@ -31,6 +43,12 @@ const OUTREACH_JOBS = new Set([
   'prepare_followup_drafts',
 ]);
 
+const DIRECT_JOBS = new Set([
+  'x_prospect_discovery',
+  'website_evidence_batch',
+  'evidence_assembly_batch',
+]);
+
 async function main(): Promise<void> {
   resetEnvCache();
   const env = loadEnv();
@@ -39,14 +57,22 @@ async function main(): Promise<void> {
   const config = new SystemConfigService(db);
 
   await config.seedDefaultsFromEnv(env);
-  const killSwitch = new KillSwitch(config);
+  const killSwitch = new (await import('@metrivio/core')).KillSwitch(config);
   await killSwitch.assertNotActive('automation.runner');
 
   const jobs = (process.env.METRIVIO_JOBS ?? [
+    'x_prospect_discovery',
+    'website_evidence_batch',
+    'evidence_assembly_batch',
     'ingest_content_signals',
+    'analyze_icp_conversations',
     'analyze_competitor_content',
     'analyze_expert_content',
     'generate_content_opportunities',
+    'analyze_own_content',
+    'collect_post_performance',
+    'analyze_content_performance',
+    'update_growth_techniques',
     'generate_content_recommendations',
   ].join(','))
     .split(',')
@@ -60,6 +86,13 @@ async function main(): Promise<void> {
 
   const sessionCookie = process.env.XACTIONS_SESSION_COOKIE || undefined;
   const xReadAdapter = new XActionsReadAdapter({ killSwitch, sessionCookie });
+  const websiteAdapter = new WebsiteContentAdapter({ killSwitch });
+  const techAdapter = createDefaultTechAnalyzerAdapter();
+  const technologyEnrichment = new TechnologyEnrichmentService(db, techAdapter, logger);
+  const discovery = new DiscoveryService(db, xReadAdapter, logger);
+  const websiteEvidence = new WebsiteEvidenceService(db, websiteAdapter, logger);
+  const evidenceAssembly = new EvidenceAssemblyService(db, technologyEnrichment, logger);
+
   const contentScheduler = createContentAutomationScheduler(db, xReadAdapter, logger);
   const replyDetector = new XActionsReplyDetectorAdapter({ killSwitch, sessionCookie });
   const outreachScheduler = createOutreachAutomationScheduler(db, replyDetector, logger);
@@ -75,6 +108,54 @@ async function main(): Promise<void> {
   }> = [];
 
   for (const job of jobs) {
+    if (job === 'x_prospect_discovery') {
+      const result = await discovery.run();
+      results.push({
+        job,
+        status: result.errors.length > 0 ? 'PARTIAL' : 'COMPLETED',
+        reason: result.stoppedReason,
+        itemsProcessed: result.profilesRetrieved,
+        itemsSucceeded: result.prospectsCreated + result.prospectsUpdated,
+        itemsFailed: result.errors.length,
+        detail: {
+          candidatesFound: result.candidatesFound,
+          prospectsCreated: result.prospectsCreated,
+          prospectsUpdated: result.prospectsUpdated,
+          evidenceRowsWritten: result.evidenceRowsWritten,
+          painSignalsWritten: result.painSignalsWritten,
+        },
+      });
+      continue;
+    }
+
+    if (DIRECT_JOBS.has(job)) {
+      const prospects = await db.select({ id: schema.prospects.id }).from(schema.prospects).limit(maxItems);
+      const prospectIds = prospects.map((row) => row.id);
+
+      if (job === 'website_evidence_batch') {
+        const result = await websiteEvidence.runBatch(prospectIds);
+        results.push({
+          job,
+          status: result.results.some((item) => item.error) ? 'PARTIAL' : 'COMPLETED',
+          reason: result.stoppedReason,
+          itemsProcessed: result.results.length,
+          itemsSucceeded: result.results.filter((item) => !item.error).length,
+          itemsFailed: result.results.filter((item) => item.error).length,
+        });
+      } else if (job === 'evidence_assembly_batch') {
+        const result = await evidenceAssembly.scoreBatch(prospectIds);
+        results.push({
+          job,
+          status: result.results.some((item) => item.error) ? 'PARTIAL' : 'COMPLETED',
+          reason: 'completed',
+          itemsProcessed: result.results.length,
+          itemsSucceeded: result.results.filter((item) => !item.error).length,
+          itemsFailed: result.results.filter((item) => item.error).length,
+        });
+      }
+      continue;
+    }
+
     if (CONTENT_JOBS.has(job)) {
       const result = await runContentAutomationJob(
         contentScheduler,
