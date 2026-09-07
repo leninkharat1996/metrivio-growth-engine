@@ -1,4 +1,5 @@
-import { writeAuditLog, type MetrivioDb } from '@metrivio/core';
+import { and, eq } from 'drizzle-orm';
+import { schema, writeAuditLog, type MetrivioDb } from '@metrivio/core';
 import { ContentDraftService } from '../drafts/content-draft-service.js';
 
 /**
@@ -29,6 +30,22 @@ import { ContentDraftService } from '../drafts/content-draft-service.js';
 export interface SchedulingReadinessResult {
   ready: boolean;
   reason: string;
+}
+
+/**
+ * Stage 8, Section X — a draft's scheduling state, folded from its audit
+ * log exactly like `ContentDraftService.getApprovalIntegrity()` folds
+ * approval state. Deliberately a SEPARATE audit-event namespace
+ * (`content.draft.scheduled_for`) from content mutation
+ * (`content.draft.body_changed`) and approval (`content.draft.approved`):
+ * changing when a draft is scheduled to publish must never, by itself,
+ * invalidate its approval, and changing its approved content must never be
+ * satisfied merely by rescheduling. See `PublishApprovedContentService` for
+ * where both checks are combined.
+ */
+export interface SchedulingState {
+  readyForScheduling: boolean;
+  scheduledFor: string | null;
 }
 
 export class SchedulingReadinessService {
@@ -62,5 +79,51 @@ export class SchedulingReadinessService {
     });
 
     return { ready: true, reason: 'draft is APPROVED and marked ready for scheduling — actual publishing requires a future, separately verified transport' };
+  }
+
+  /**
+   * Records (or updates) when a draft is due to be published. Requires
+   * `markReadyForScheduling()` to have already succeeded for this draft.
+   * Calling this again for the same draft (changing the timestamp) writes
+   * a new audit event but is deliberately independent of approval state —
+   * it never touches `content.draft.approved`/`content.draft.body_changed`,
+   * so rescheduling a draft never silently re-approves or invalidates it.
+   */
+  async scheduleFor(draftId: string, scheduledForIso: string, scheduledBy?: string): Promise<SchedulingState> {
+    const state = await this.getSchedulingState(draftId);
+    if (!state.readyForScheduling) {
+      throw new Error(`Cannot schedule content draft ${draftId}: not marked ready for scheduling — call markReadyForScheduling() first`);
+    }
+
+    await writeAuditLog(this.db, {
+      actor: scheduledBy ? 'human' : 'system',
+      actionType: 'content.draft.scheduled_for',
+      entityType: 'content_draft',
+      entityId: draftId,
+      detail: { scheduledFor: scheduledForIso, scheduledBy },
+    });
+
+    return this.getSchedulingState(draftId);
+  }
+
+  /** Folds this draft's audit log into its current scheduling state — never trusts an in-memory cache. */
+  async getSchedulingState(draftId: string): Promise<SchedulingState> {
+    const rows = await this.db
+      .select()
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.entityType, 'content_draft'), eq(schema.auditLog.entityId, draftId)));
+
+    let readyForScheduling = false;
+    let scheduledFor: string | null = null;
+    for (const row of rows) {
+      if (row.actionType === 'content.draft.scheduling_ready') {
+        readyForScheduling = true;
+      } else if (row.actionType === 'content.draft.scheduled_for' && row.detail) {
+        const detail = JSON.parse(row.detail) as { scheduledFor?: string };
+        if (detail.scheduledFor) scheduledFor = detail.scheduledFor;
+      }
+    }
+
+    return { readyForScheduling, scheduledFor };
   }
 }

@@ -67,6 +67,25 @@ ${table(['Technique', 'Category', 'Status', 'Applicability'], data.growthTechniq
 
 <h2>9. Recommended Next Content</h2>
 ${table(['Score', 'Hook'], data.recommendedNextContent.map((o) => [String(o.score), o.hook]))}
+
+<h2>10. Publishing Status (Stage 8)</h2>
+${table(
+  ['Pending Approval', 'Approved (not yet published)', 'Scheduled', 'Due Now', 'Published', 'Failed', 'Unknown'],
+  [[
+    String(data.publishingStatus.pendingApproval),
+    String(data.publishingStatus.approved),
+    String(data.publishingStatus.scheduled),
+    String(data.publishingStatus.due),
+    String(data.publishingStatus.published),
+    String(data.publishingStatus.failed),
+    String(data.publishingStatus.unknown),
+  ]]
+)}
+<h3>Recent Publishing Activity</h3>
+${table(
+  ['Draft ID', 'Outcome', 'X Post ID', 'Timestamp'],
+  data.publishingStatus.recentActivity.map((a) => [a.draftId, a.outcome, a.xPostId ?? 'n/a', a.timestamp])
+)}
 </body>
 </html>`;
 }

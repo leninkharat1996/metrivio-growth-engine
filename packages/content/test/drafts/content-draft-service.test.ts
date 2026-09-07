@@ -98,3 +98,66 @@ describe('ContentDraftService — approval boundary (Section W)', () => {
     expect(again.approvedBy).toBe('lenin'); // unchanged — idempotent no-op, not a re-approval
   });
 });
+
+describe('ContentDraftService.getApprovalIntegrity — Stage 8, Section W', () => {
+  it('reports not approved for a DRAFTED draft', async () => {
+    const { draft } = await service.generateDraft({ ideaId: uuid(), body: 'clean body' });
+    const integrity = await service.getApprovalIntegrity(draft.id);
+    expect(integrity.isApproved).toBe(false);
+    expect(integrity.contentChangedSinceApproval).toBe(false);
+  });
+
+  it('reports approved with no content change immediately after approve()', async () => {
+    const { draft } = await service.generateDraft({ ideaId: uuid(), body: 'clean body' });
+    await service.submitForApproval(draft.id);
+    await service.approve(draft.id, 'lenin');
+    const integrity = await service.getApprovalIntegrity(draft.id);
+    expect(integrity.isApproved).toBe(true);
+    expect(integrity.contentChangedSinceApproval).toBe(false);
+    expect(integrity.approvedBy).toBe('lenin');
+  });
+
+  it('reports contentChangedSinceApproval=true after updateBody() on an APPROVED draft', async () => {
+    const { draft } = await service.generateDraft({ ideaId: uuid(), body: 'original text' });
+    await service.submitForApproval(draft.id);
+    await service.approve(draft.id, 'lenin');
+    await service.updateBody(draft.id, 'mutated text', 'editor-1');
+    const integrity = await service.getApprovalIntegrity(draft.id);
+    expect(integrity.contentChangedSinceApproval).toBe(true);
+  });
+
+  it('clears contentChangedSinceApproval once the mutated draft is re-approved', async () => {
+    const { draft } = await service.generateDraft({ ideaId: uuid(), body: 'original text' });
+    await service.submitForApproval(draft.id);
+    await service.approve(draft.id, 'lenin');
+    await service.updateBody(draft.id, 'mutated text', 'editor-1');
+    await service.approve(draft.id, 'lenin-again');
+    const integrity = await service.getApprovalIntegrity(draft.id);
+    expect(integrity.contentChangedSinceApproval).toBe(false);
+    expect(integrity.approvedBy).toBe('lenin-again');
+  });
+});
+
+describe('ContentDraftService.updateBody', () => {
+  it('updates the body and re-runs validation', async () => {
+    const { draft } = await service.generateDraft({ ideaId: uuid(), body: 'clean body' });
+    const updated = await service.updateBody(draft.id, 'we achieved amazing results for our client');
+    expect(updated.body).toBe('we achieved amazing results for our client');
+    expect(updated.qualityCheckStatus).toBe('flagged');
+  });
+
+  it('never changes approval_status in the DB — only the audit trail records the invalidation', async () => {
+    const { draft } = await service.generateDraft({ ideaId: uuid(), body: 'clean body' });
+    await service.submitForApproval(draft.id);
+    await service.approve(draft.id, 'lenin');
+    const updated = await service.updateBody(draft.id, 'new text');
+    expect(updated.status).toBe('APPROVED'); // DB-level approvalStatus is unchanged; PublishApprovedContentService is what treats it as not-really-approved
+  });
+
+  it('refuses to update the body of a REJECTED (terminal) draft', async () => {
+    const { draft } = await service.generateDraft({ ideaId: uuid(), body: 'clean body' });
+    await service.submitForApproval(draft.id);
+    await service.reject(draft.id, 'lenin', 'no');
+    await expect(service.updateBody(draft.id, 'new text')).rejects.toThrow();
+  });
+});

@@ -1,4 +1,4 @@
-import { AutomationScheduler, KillSwitch, SystemConfigService, type MetrivioDb, type XReadAdapter, type RunScheduledJobResult, type createLogger } from '@metrivio/core';
+import { AutomationScheduler, KillSwitch, SystemConfigService, type MetrivioDb, type XReadAdapter, type XPublishAdapter, type JobHandler, type RunScheduledJobResult, type createLogger } from '@metrivio/core';
 import { IcpResearchService } from '../icp-research/icp-research-service.js';
 import { TrackedAccountStore } from '../accounts/tracked-account-store.js';
 import { TrackedAccountResearchService } from '../accounts/tracked-account-research-service.js';
@@ -7,6 +7,8 @@ import { ContentOpportunityEngine } from '../opportunities/content-opportunity-e
 import { ContentDraftService } from '../drafts/content-draft-service.js';
 import { OwnContentPerformanceService } from '../own-content/own-content-performance-service.js';
 import { PersonalBrandAnalysisService } from '../personal-brand/personal-brand-analysis-service.js';
+import { SchedulingReadinessService } from '../publishing/scheduling-readiness.js';
+import { PublishApprovedContentService } from '../publishing/publish-approved-content-service.js';
 import { IngestContentSignalsHandler } from './ingest-content-signals-handler.js';
 import { AnalyzeIcpConversationsHandler } from './analyze-icp-conversations-handler.js';
 import { AnalyzeCompetitorContentHandler } from './analyze-competitor-content-handler.js';
@@ -15,6 +17,7 @@ import { GenerateContentOpportunitiesHandler } from './generate-content-opportun
 import { GenerateContentDraftsHandler } from './generate-content-drafts-handler.js';
 import { ValidateContentDraftsHandler } from './validate-content-drafts-handler.js';
 import { AnalyzeOwnContentHandler } from './analyze-own-content-handler.js';
+import { PublishDueContentHandler } from './publish-due-content-handler.js';
 import type { ContentAutomationJobType } from './job-types.js';
 
 /**
@@ -26,8 +29,20 @@ import type { ContentAutomationJobType } from './job-types.js';
  * — the two subsystems Stage 1 already defined map exactly onto outreach
  * automation (Stage 6E) and content automation (this stage), so no new
  * mode/enabled config concept was needed for either.
+ *
+ * Stage 8: `xPublishAdapter` is OPTIONAL and additive. When omitted, this
+ * factory behaves EXACTLY as it did in Stage 7 (no `PUBLISH_DUE_CONTENT`
+ * handler is registered at all, so that job type is simply unavailable —
+ * every existing Stage 7 caller/test is unaffected). When provided, one
+ * additional handler (`PublishDueContentHandler`) is registered, wired
+ * through `PublishApprovedContentService` — never directly to the adapter.
  */
-export function createContentAutomationScheduler(db: MetrivioDb, xReadAdapter: XReadAdapter, logger?: ReturnType<typeof createLogger>): AutomationScheduler {
+export function createContentAutomationScheduler(
+  db: MetrivioDb,
+  xReadAdapter: XReadAdapter,
+  logger?: ReturnType<typeof createLogger>,
+  xPublishAdapter?: XPublishAdapter
+): AutomationScheduler {
   const config = new SystemConfigService(db);
   const killSwitch = new KillSwitch(config);
 
@@ -40,7 +55,7 @@ export function createContentAutomationScheduler(db: MetrivioDb, xReadAdapter: X
   const performance = new OwnContentPerformanceService(db, logger);
   const personalBrand = new PersonalBrandAnalysisService(db, xReadAdapter);
 
-  const handlers = [
+  const handlers: JobHandler[] = [
     new IngestContentSignalsHandler(db, icpResearch),
     new AnalyzeIcpConversationsHandler(db, signals),
     new AnalyzeCompetitorContentHandler(db, accounts, accountResearch),
@@ -50,6 +65,12 @@ export function createContentAutomationScheduler(db: MetrivioDb, xReadAdapter: X
     new ValidateContentDraftsHandler(db, drafts),
     new AnalyzeOwnContentHandler(performance),
   ];
+
+  if (xPublishAdapter) {
+    const scheduling = new SchedulingReadinessService(db);
+    const publisher = new PublishApprovedContentService(db, xPublishAdapter, logger);
+    handlers.push(new PublishDueContentHandler(db, scheduling, publisher));
+  }
 
   return new AutomationScheduler(db, killSwitch, handlers, logger);
 }

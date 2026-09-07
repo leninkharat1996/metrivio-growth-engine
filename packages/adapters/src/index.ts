@@ -7,6 +7,8 @@ export * from './wappalyzergo.adapter.js';
 export * from './website-content.adapter.js';
 export * from './xactions-send.adapter.js';
 export * from './xactions-reply-detector.adapter.js';
+export * from './oauth1-signer.js';
+export * from './xmanager-publish.adapter.js';
 
 import type { TechAnalyzerAdapter } from '@metrivio/core';
 import { OpenTechAnalyzerAdapter } from './open-tech-analyzer.adapter.js';

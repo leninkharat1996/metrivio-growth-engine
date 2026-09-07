@@ -99,6 +99,22 @@ export const SYSTEM_CONFIG_KEYS = {
    * `automationMode('prospecting.outreach')`.
    */
   contentAutomationMaxItemsPerRun: 'content.automation_max_items_per_run',
+  /**
+   * Stage 8 — a SECOND, explicit confirmation gate on top of
+   * `automationMode('content.publishing') === 'autonomous'`. Per Stage 8's
+   * own instruction ("AUTONOMOUS explicitly disabled unless all required
+   * conditions satisfied, fail closed if config missing"): setting the mode
+   * to `autonomous` alone is not sufficient for `PublishApprovedContentService`
+   * to actually call `XPublishAdapter` for automation-discovered work —
+   * this additional boolean must also be explicitly set to `true`. Missing
+   * or any non-`'true'` value fails closed (treated as `false`). This does
+   * NOT gate `approval_required` mode, which already requires each
+   * individual draft to carry a real human approval (Section F) — this
+   * flag only affects whether the *automation job* itself
+   * (`PUBLISH_DUE_CONTENT`) is allowed to trigger that already-human-approved
+   * publish without a further per-run human action.
+   */
+  contentPublishingAutonomousEnabled: 'content.publishing.autonomous_enabled',
 } as const;
 
 /** See `outreachMaxMessageLength`'s doc comment above — conservative and documented, not sourced from a verified X platform limit. */
@@ -264,6 +280,16 @@ export class SystemConfigService {
       scrapes: SYSTEM_CONFIG_KEYS.dailyLimitScrapes,
     } as const;
     await this.setRaw(keyMap[kind], String(Math.max(0, Math.trunc(value))), updatedBy);
+  }
+
+  /** See `contentPublishingAutonomousEnabled`'s doc comment — fails closed (unset or anything other than `'true'` means `false`). */
+  async isContentPublishingAutonomousEnabled(): Promise<boolean> {
+    const raw = await this.getRaw(SYSTEM_CONFIG_KEYS.contentPublishingAutonomousEnabled);
+    return raw === 'true';
+  }
+
+  async setContentPublishingAutonomousEnabled(enabled: boolean, updatedBy: string): Promise<void> {
+    await this.setRaw(SYSTEM_CONFIG_KEYS.contentPublishingAutonomousEnabled, String(enabled), updatedBy);
   }
 
   async isSessionHealthAutoDowngradeEnabled(): Promise<boolean> {

@@ -1,8 +1,22 @@
+import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { schema, writeAuditLog, applyDraftTransition, isTerminalDraftState, type MetrivioDb, type DraftLifecycleState, type createLogger } from '@metrivio/core';
 import { validateContentDraft } from './content-validation.js';
 import { ContentSignalStore } from '../signals/content-signal-store.js';
+
+/**
+ * Stage 8, Section W — a deterministic fingerprint of a draft's body,
+ * recorded in the `content.draft.approved` audit event and re-derived
+ * whenever `updateBody()` is called. `PublishApprovedContentService`
+ * compares the two (via `getApprovalIntegrity()`) to detect "approved text
+ * A silently became published text B" without ever needing a second,
+ * parallel approval-tracking table — the existing audit log is already the
+ * append-only, tamper-evident record this needs.
+ */
+export function contentHash(body: string): string {
+  return createHash('sha256').update(body).digest('hex');
+}
 
 /**
  * Stage 7, Section O/W — content draft lifecycle, built on the EXISTING
@@ -29,6 +43,7 @@ const ACTION_TYPES = {
   submittedForApproval: 'content.draft.submitted_for_approval',
   approved: 'content.draft.approved',
   rejected: 'content.draft.rejected',
+  bodyChanged: 'content.draft.body_changed',
 } as const;
 
 interface TransitionDetail {
@@ -36,6 +51,29 @@ interface TransitionDetail {
   approvedBy?: string;
   rejectedBy?: string;
   reason?: string;
+  contentHash?: string;
+}
+
+interface BodyChangedDetail {
+  sequence: number;
+  contentHash: string;
+  editedBy?: string;
+}
+
+/**
+ * Stage 8, Section W/X — whether a draft's currently-recorded approval (if
+ * any) still covers its current body. `contentChangedSinceApproval: true`
+ * means `PublishApprovedContentService` must treat this draft as NOT
+ * validly approved, regardless of `content_drafts.approval_status` still
+ * reading `'approved'` in the DB — publishing requires a fresh `approve()`
+ * call recorded after the most recent body change.
+ */
+export interface ApprovalIntegrity {
+  isApproved: boolean;
+  approvedBy?: string;
+  contentHashAtApproval?: string;
+  currentContentHash: string;
+  contentChangedSinceApproval: boolean;
 }
 
 export interface ContentDraftInput {
@@ -136,11 +174,129 @@ export class ContentDraftService {
   }
 
   async approve(draftId: string, approvedBy: string): Promise<ContentDraft> {
-    return this.transition(draftId, 'APPROVE', ACTION_TYPES.approved, { approvedBy });
+    const current = await this.getDraft(draftId);
+    if (!current) {
+      throw new Error(`Cannot apply transition "APPROVE": no content draft found with id ${draftId}`);
+    }
+
+    // Section W: a draft already APPROVED whose body was subsequently
+    // changed (via updateBody()) needs a fresh `approve()` call to record a
+    // new contentHash covering the current body — but `applyDraftTransition`
+    // treats APPROVED as terminal (no outgoing APPROVE transition), so the
+    // generic `transition()` helper below would silently no-op and never
+    // record it. Re-approval is therefore handled here directly: it never
+    // invents a new state-machine transition, it only ever writes a new
+    // `content.draft.approved` audit event re-affirming approval of
+    // whatever the current body now is.
+    if (current.status === 'APPROVED') {
+      const integrity = await this.getApprovalIntegrity(draftId);
+      if (!integrity.contentChangedSinceApproval) {
+        return current; // already approved and covers the current body — true no-op
+      }
+      const priorRows = await this.db.select().from(schema.auditLog).where(and(eq(schema.auditLog.entityType, ENTITY_TYPE), eq(schema.auditLog.entityId, draftId)));
+      const detail: TransitionDetail = { sequence: priorRows.length, approvedBy, contentHash: contentHash(current.body) };
+      await writeAuditLog(this.db, { actor: 'human', actionType: ACTION_TYPES.approved, entityType: ENTITY_TYPE, entityId: draftId, detail: detail as unknown as Record<string, unknown> });
+      await this.db.update(schema.contentDrafts).set({ approvedBy, updatedAt: new Date().toISOString() }).where(eq(schema.contentDrafts.id, draftId));
+      const updated = await this.getDraft(draftId);
+      if (!updated) throw new Error(`Content draft ${draftId} vanished during re-approval — this should be unreachable`);
+      return updated;
+    }
+
+    return this.transition(draftId, 'APPROVE', ACTION_TYPES.approved, { approvedBy, contentHash: contentHash(current.body) });
   }
 
   async reject(draftId: string, rejectedBy: string, reason?: string): Promise<ContentDraft> {
     return this.transition(draftId, 'REJECT', ACTION_TYPES.rejected, { rejectedBy, reason });
+  }
+
+  /**
+   * Stage 8, Section W — changes a draft's body after it may already be
+   * APPROVED. Deliberately does NOT go through `applyDraftTransition()`
+   * (APPROVED has no outgoing transitions in that table, and this method
+   * must never bypass that invariant by inventing one) — it updates the
+   * `content_drafts.body` column directly and re-runs
+   * `validateContentDraft()`, but leaves `approval_status` in the DB
+   * untouched. What changes is the audit trail: a
+   * `content.draft.body_changed` event recording the new content's hash,
+   * which `getApprovalIntegrity()` compares against the hash captured at
+   * the most recent `approve()` call to determine whether that approval
+   * still covers the current body. This is the mechanism
+   * `PublishApprovedContentService` relies on to require re-approval before
+   * publishing a draft whose approved text no longer matches its current
+   * text.
+   */
+  async updateBody(draftId: string, newBody: string, editedBy?: string): Promise<ContentDraft> {
+    const current = await this.getDraft(draftId);
+    if (!current) {
+      throw new Error(`Cannot update body: no content draft found with id ${draftId}`);
+    }
+    if (current.status === 'REJECTED') {
+      throw new Error(`Cannot update body of content draft ${draftId}: REJECTED is terminal`);
+    }
+
+    const relatedExcerpts = (await this.signals.list({ limit: 500 })).map((s) => s.excerpt).filter((e): e is string => !!e);
+    const validation = validateContentDraft(newBody, relatedExcerpts);
+
+    await this.db
+      .update(schema.contentDrafts)
+      .set({
+        body: newBody,
+        qualityCheckStatus: validation.status,
+        qualityCheckNotes: validation.notes.length ? JSON.stringify(validation.notes) : null,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.contentDrafts.id, draftId));
+
+    const priorRows = await this.db.select().from(schema.auditLog).where(and(eq(schema.auditLog.entityType, ENTITY_TYPE), eq(schema.auditLog.entityId, draftId)));
+    const detail: BodyChangedDetail = { sequence: priorRows.length, contentHash: contentHash(newBody), editedBy };
+    await writeAuditLog(this.db, { actor: editedBy ? 'human' : 'system', actionType: ACTION_TYPES.bodyChanged, entityType: ENTITY_TYPE, entityId: draftId, detail: detail as unknown as Record<string, unknown> });
+
+    const updated = await this.getDraft(draftId);
+    if (!updated) throw new Error(`Content draft ${draftId} vanished during updateBody — this should be unreachable`);
+    return updated;
+  }
+
+  /**
+   * Stage 8, Sections F/W — derives whether this draft's most recent
+   * `approve()` call still covers its current body, by replaying the audit
+   * log rather than trusting `content_drafts.approval_status` alone. Used
+   * by `PublishApprovedContentService`'s pre-publish approval recheck; must
+   * never be bypassed in favor of a cached/in-memory approval flag.
+   */
+  async getApprovalIntegrity(draftId: string): Promise<ApprovalIntegrity> {
+    const current = await this.getDraft(draftId);
+    if (!current) {
+      throw new Error(`Cannot compute approval integrity: no content draft found with id ${draftId}`);
+    }
+
+    const auditRows = await this.db.select().from(schema.auditLog).where(and(eq(schema.auditLog.entityType, ENTITY_TYPE), eq(schema.auditLog.entityId, draftId)));
+    const events = auditRows
+      .map((r) => ({ actionType: r.actionType, detail: r.detail ? (JSON.parse(r.detail) as TransitionDetail & BodyChangedDetail) : null }))
+      .filter((e): e is { actionType: string; detail: TransitionDetail & BodyChangedDetail } => e.detail !== null)
+      .sort((a, b) => a.detail.sequence - b.detail.sequence);
+
+    let lastApproval: { approvedBy?: string; contentHash?: string; sequence: number } | undefined;
+    let lastBodyChangeSequence = -1;
+
+    for (const event of events) {
+      if (event.actionType === ACTION_TYPES.approved) {
+        lastApproval = { approvedBy: event.detail.approvedBy, contentHash: event.detail.contentHash, sequence: event.detail.sequence };
+      } else if (event.actionType === ACTION_TYPES.bodyChanged) {
+        lastBodyChangeSequence = event.detail.sequence;
+      }
+    }
+
+    const currentHash = contentHash(current.body);
+    const isApproved = current.status === 'APPROVED' && lastApproval !== undefined;
+    const contentChangedSinceApproval = isApproved && (lastApproval!.contentHash !== currentHash || lastBodyChangeSequence > lastApproval!.sequence);
+
+    return {
+      isApproved,
+      approvedBy: lastApproval?.approvedBy,
+      contentHashAtApproval: lastApproval?.contentHash,
+      currentContentHash: currentHash,
+      contentChangedSinceApproval,
+    };
   }
 
   /**
@@ -201,7 +357,7 @@ export class ContentDraftService {
     draftId: string,
     transitionName: 'SUBMIT_FOR_APPROVAL' | 'APPROVE' | 'REJECT',
     actionType: string,
-    extra: { approvedBy?: string; rejectedBy?: string; reason?: string }
+    extra: { approvedBy?: string; rejectedBy?: string; reason?: string; contentHash?: string }
   ): Promise<ContentDraft> {
     const current = await this.getDraft(draftId);
     if (!current) {

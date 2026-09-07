@@ -1,20 +1,22 @@
 /**
  * @metrivio/content — Stage 7: ICP Research + Content Intelligence +
- * Personal Brand Engine.
+ * Personal Brand Engine; Stage 8: X Publishing + Distribution Boundary.
  *
  * Research -> Collect -> Classify -> Analyze -> Identify Pain -> Identify
  * Patterns -> Find Gaps -> Generate Content Opportunities -> Draft ->
- * Validate -> Human Approval -> (Scheduling readiness only — publishing
- * transport remains unverified; see `publishing/scheduling-readiness.ts`
- * and RISK_REGISTER.md's Stage 7 section).
+ * Validate -> Human Approval -> Scheduling readiness -> (Stage 8)
+ * `PublishApprovedContentService` -> `XPublishAdapter` -> X Post -> Audit.
  *
- * Every research subsystem here is READ-ONLY against X (reuses the
- * existing `XReadAdapter` contract, never a write adapter) and bounded
+ * Every Stage 7 research subsystem here remains READ-ONLY against X (reuses
+ * the existing `XReadAdapter` contract, never a write adapter) and bounded
  * against the web (reuses `WebsiteReadAdapter`, targeted fetches only,
- * never a crawler). No subsystem in this package can send a DM, publish a
- * post, or bypass the existing `KillSwitch`/`AutomationScheduler`.
+ * never a crawler). No subsystem in this package can send a DM or bypass
+ * the existing `KillSwitch`/`AutomationScheduler`. `PublishApprovedContentService`
+ * is the ONLY code path in this package that can ever call `XPublishAdapter`
+ * — see its own doc comment for the full approval/validation/kill-switch/
+ * mode/limit boundary it enforces before doing so.
  */
-export const CONTENT_PACKAGE_STAGE = 'stage-7' as const;
+export const CONTENT_PACKAGE_STAGE = 'stage-8' as const;
 
 export * from './confidence.js';
 export * from './pain-taxonomy/pain-taxonomy.js';
@@ -41,6 +43,8 @@ export * from './own-content/own-content-performance-service.js';
 export * from './growth-techniques/growth-technique-library.js';
 export * from './personal-brand/personal-brand-analysis-service.js';
 export * from './publishing/scheduling-readiness.js';
+export * from './publishing/x-post-constraints.js';
+export * from './publishing/publish-approved-content-service.js';
 export * from './automation/job-types.js';
 export * from './automation/icp-candidate-discovery.js';
 export * from './automation/ingest-content-signals-handler.js';
@@ -51,4 +55,5 @@ export * from './automation/generate-content-opportunities-handler.js';
 export * from './automation/generate-content-drafts-handler.js';
 export * from './automation/validate-content-drafts-handler.js';
 export * from './automation/analyze-own-content-handler.js';
+export * from './automation/publish-due-content-handler.js';
 export * from './automation/content-automation.js';
