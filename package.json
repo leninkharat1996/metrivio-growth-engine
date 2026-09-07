@@ -10,7 +10,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w @metrivio/core && npm run build -w @metrivio/adapters && npm run build -w @metrivio/content && npm run build -w @metrivio/dashboard && npm run build -w @metrivio/outreach && npm run build -w @metrivio/prospecting",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint packages --ext .ts",
     "test": "vitest run",
