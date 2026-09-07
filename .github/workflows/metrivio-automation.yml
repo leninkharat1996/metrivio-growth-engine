@@ -33,16 +33,16 @@ jobs:
       CONTENT_PUBLISHING_AUTOMATION_MODE: dry_run
       KILL_SWITCH: 'false'
       METRIVIO_MAX_ITEMS: ${{ inputs.max_items || '10' }}
-      METRIVIO_JOBS: ${{ inputs.jobs || 'x_prospect_discovery,evidence_assembly_batch,website_evidence_batch,ingest_content_signals,analyze_icp_conversations,analyze_competitor_content,analyze_expert_content,generate_content_opportunities,analyze_own_content,collect_post_performance,analyze_content_performance,update_growth_techniques,generate_content_recommendations' }}
+      METRIVIO_JOBS: ${{ inputs.jobs || 'x_prospect_discovery,website_evidence_batch,evidence_assembly_batch,ingest_content_signals,analyze_icp_conversations,analyze_competitor_content,analyze_expert_content,generate_content_opportunities,analyze_own_content,collect_post_performance,analyze_content_performance,update_growth_techniques,generate_content_recommendations' }}
       XACTIONS_SESSION_COOKIE: ${{ secrets.XACTIONS_SESSION_COOKIE }}
       METRIVIO_DB_KEY: ${{ secrets.METRIVIO_DB_KEY }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
@@ -95,7 +95,7 @@ jobs:
 
       - name: Upload encrypted database state
         if: always() && hashFiles('var/metrivio.sqlite.enc') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: metrivio-db
           path: var/metrivio.sqlite.enc
